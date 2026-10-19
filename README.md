@@ -1,121 +1,171 @@
 # webcopy
 
-**Motion forensics for the web.** Paste a public website link and webcopy reads
-the delivered HTML, CSS and JavaScript — then counts every keyframe, animation
-assignment, transition, scroll system, animation library, design token, asset
-and outbound link it can find, and gives you the receipts as a browsable
-report plus clean JSON.
+> **Motion forensics for the web.**
+> Read a page’s shipped source. See its motion, design system, structure, and assets in one clear report.
 
-```
+[Open webcopy](https://webcopy-nu.vercel.app)
+
+Paste a public website URL into webcopy to inspect the HTML, CSS, and JavaScript it delivers. Get a browsable report, downloadable JSON, and a copy-ready reconstruction prompt.
+
+webcopy reads source files statically. It does not run the target site, render it in a browser, or take screenshots.
+
+---
+
+## What you get
+
+- **Motion ledger** — keyframes, animation assignments, transitions, easing, scroll behavior, motion libraries, runtime motion signals, and reduced-motion coverage.
+- **Design ledger** — colors, typefaces, typography specimens, spacing and type scales, font files, radii, shadows, gradients, breakpoints, and CSS custom properties.
+- **Asset inventory** — images, video, embeds, fonts, stylesheets, scripts, CSS assets, metadata images, links, and external domains.
+- **Page structure** — metadata, headings, landmarks, forms, frameworks, CMS hints, and JSON-LD.
+- **Source notes** — response status, byte counts, fetch outcomes, warnings, and analysis limits.
+- **Rebuild prompt** — a copy-ready brief assembled from the report, with design, content structure, assets, and motion details.
+
+The motion score describes how much motion appears in the source. It is not a rating of visual quality, performance, or accessibility.
+
+## Try it locally
+
+**Requirements:** Node.js 20.11 or later.
+
+```bash
+git clone <your-repository-url>
+cd webcopy
 npm install
-npm start        # http://localhost:4173
+npm start
 ```
 
-No build step. Node 20.11+ required.
+Open [http://localhost:4173](http://localhost:4173). For auto-restart while editing, run `npm run dev`.
 
-## What it reads
+No frontend build step is required. The Express server serves the files in `public/` directly.
 
-webcopy performs a **static read of the delivered source**. It never renders,
-screenshots or executes the target page.
+To try the built-in Aurelia Studio specimen without fetching another site, choose a specimen/demo action in the interface or request `/api/demo`.
 
-| Ledger | Contents |
+## Architecture
+
+```mermaid
+flowchart LR
+    Browser["Browser UI<br/>public/index.html · app.js · styles.css"]
+    API["Express API<br/>server/index.js"]
+    Guard["Safe fetch<br/>server/fetcher.js"]
+    HTML["HTML analysis<br/>server/html-analysis.js"]
+    CSS["CSS analysis<br/>server/css-analysis.js"]
+    JS["JavaScript signals<br/>server/js-analysis.js"]
+    Tech["Technology detection<br/>server/tech.js"]
+    Report["Report assembly<br/>server/analyzer.js"]
+    Prompt["Rebuild prompt<br/>server/prompt.js"]
+    Demo["Offline specimen<br/>server/demo.js"]
+
+    Browser -->|"URL scan / demo"| API
+    API -->|"analyzeSite()"| Guard
+    Guard --> HTML
+    Guard --> CSS
+    Guard --> JS
+    HTML --> Report
+    CSS --> Report
+    JS --> Report
+    Tech --> Report
+    Report --> Prompt
+    API --> Demo
+    Report -->|"JSON or progress events"| API
+    Demo --> API
+    API -->|"SSE progress + report"| Browser
+```
+
+### A scan, step by step
+
+1. **The browser starts a scan.** The interface validates the URL and opens an event stream so it can show progress and let the user cancel.
+2. **The API applies request controls.** Express handles JSON and streaming routes, applies response security headers, compresses normal responses, and limits scans per client IP.
+3. **The fetcher reads the public page.** It normalizes the URL, follows redirects safely, rejects private/local network targets by default, and applies response-size and timeout limits.
+4. **The analyzers inspect delivered source.** Cheerio parses the HTML. The HTML analyzer inventories structure and linked resources; CSS and JavaScript analyzers extract declarations and recognizable source signals. External resources are fetched within per-type limits.
+5. **The report assembler combines findings.** It joins motion, design, asset, structure, technology, statistics, warnings, and the generated rebuild prompt into one report object.
+6. **The browser presents the result.** The front end renders searchable report sections and offers JSON and prompt copy/download actions. Report strings and URLs are treated as untrusted input and validated before display.
+
+### Repository map
+
+```text
+webcopy/
+├── public/                  # Browser app: HTML, CSS, JavaScript, favicon, 404 page
+├── server/
+│   ├── index.js             # Express app, API routes, SSE, rate limiting, headers
+│   ├── fetcher.js           # URL normalization, safe network fetches, fetch errors
+│   ├── analyzer.js          # Scan orchestration and final report assembly
+│   ├── analyzer-utils.js    # Shared URL, text, and collection helpers
+│   ├── html-analysis.js     # HTML structure, metadata, links, and asset inventory
+│   ├── css-analysis.js      # Motion declarations and design-token extraction
+│   ├── js-analysis.js       # Static JavaScript motion and scroll signal detection
+│   ├── tech.js              # Framework, CMS, and library detection
+│   ├── prompt.js            # Copy-ready reconstruction prompt generation
+│   └── demo.js              # Offline Aurelia Studio report specimen
+├── test/                    # Node test suites for frontend and analyzer behavior
+├── .env.example             # Supported environment variables
+├── package.json
+└── README.md
+```
+
+## Run configuration
+
+Copy `.env.example` to `.env` and adjust values as needed:
+
+```dotenv
+PORT=4173
+ALLOW_PRIVATE=0
+RATE_LIMIT_PER_10M=60
+NODE_ENV=development
+```
+
+| Variable | Purpose |
 | --- | --- |
-| **A · Motion** | `@keyframes` definitions and their frame maps, animation shorthand/longhand assignments, transition rules, easing curves, duration statistics, motion libraries (GSAP, Lenis, AOS, Lottie, Swiper, Three.js, …), JS runtime triggers (`requestAnimationFrame`, WAAPI, observers, pointer tracking, view transitions), scroll systems (`animation-timeline` with ranges and named timelines, scroll snap types, smooth scroll, sticky elements with offsets, ScrollTrigger configs — scrub, pin, start/end, toggleClass — IntersectionObserver thresholds/rootMargins, scroll position reads, scroll libraries), special surfaces (SMIL, canvas, WebGL, marquee, animated GIFs, autoplay video), reduced-motion coverage |
-| **B · Design** | Color frequency, type families with specimens, per-rule typography (family, size, weight, line-height, letter-spacing, transforms), measurement buckets for weights/line-heights/spacing, `@font-face` rules, font files, type scale, radii, shadows, gradients, CSS custom properties, breakpoints, registered `@property` definitions |
-| **C · Assets** | Images with alt-text audit, srcsets and picture sources, video elements and files, embeds (YouTube/Vimeo/…), iframes, stylesheets, scripts, fonts, CSS-referenced files, meta images, every internal/external/mailto link and external domain — all searchable and filterable |
-| **D · Structure** | Metadata (title, description, canonical, OG/Twitter, viewport…), detected frameworks/CMS/builders, heading outline, sections, landmarks, forms and input types, word count, JSON-LD |
-| **E · Source** | Page status, byte counts for HTML/CSS/JS, resources read/failed/skipped, warnings, reading notes and the full machine-readable JSON |
+| `PORT` | Local server port. Defaults to `4173`. |
+| `ALLOW_PRIVATE` | Set to `1` to permit localhost/private targets for development. Keep disabled for public deployments. |
+| `RATE_LIMIT_PER_10M` | Maximum scans per client IP in a rolling 10-minute window. Defaults to `60`. |
+| `NODE_ENV` | In production, static assets receive a one-hour cache age. |
 
-Each report ends with a composite **motion score** (0–100) across six measured
-parts. It describes motion *density in the source*, not visual quality,
-performance or accessibility.
+Keep real credentials and local `.env` files out of Git. The supplied `.gitignore` excludes them.
 
-Every report also carries one **agent prompt** (`report.prompt`): a single
-copy-ready brief written so an AI agent or a teammate can rebuild the site
-without ever seeing it. It walks through, in order: the target and page
-skeleton; the design system (palette, tokens, shape, breakpoints);
-**typography** (families with face/file details, grouped type specimens,
-size/weight/line-height/spacing buckets); the **image, video, embed and meta
-inventory** (URLs, alt text, dimensions, srcset and poster details); the
-**motion system** (every `@keyframes`, animation assignment, transition,
-easing and library); and a **scroll choreography** section that details every
-scroll behaviour found — scroll-driven animation timelines with their ranges,
-sticky elements and offsets, scroll snap, scripted scrub/pin/start/end
-configs, IntersectionObserver thresholds and root margins, smooth-scroll
-library options, and markup `data-*` reveal hooks with sample values — plus
-reduced-motion and fidelity rules. The UI shows it right after the design
-ledger with copy and download-as-Markdown actions.
+## HTTP API
 
-## How it works
-
-- Fetches the page with [undici](https://github.com/nodejs/undici) using manual
-  redirect handling, a 5 MB document ceiling, per-file size limits and a
-  connect-time private-network guard (DNS is resolved and filtered per request).
-- Parses HTML with [Cheerio](https://cheerio.js.org/), CSS with
-  [PostCSS](https://postcss.org/), and scripts with normalized regex signal
-  scans.
-- Streams progress to the browser over Server-Sent Events
-  (`/api/analyze/stream`), with `POST /api/analyze` as a JSON fallback.
-- Treats every scraped string as untrusted: the front end escapes all text and
-  validates URLs, colors, gradients and font stacks before injecting them.
-
-The fictional **Aurelia Studio** specimen (`/api/demo`, or the *specimen*
-buttons in the UI) exercises the whole pipeline without touching the network.
-
-## API
-
-| Route | Description |
+| Method and route | Behavior |
 | --- | --- |
-| `GET /api/health` | Liveness check |
-| `GET /api/demo` | Full demo report (no network) |
-| `GET /api/analyze?url=…` | Blocking JSON analysis |
-| `POST /api/analyze` | JSON analysis, body `{ "url": "…", "demo": false }` |
-| `GET /api/analyze/stream?url=…` | SSE progress + `{type:'result'|'fail'}` messages. `?demo=1` streams the specimen |
-| `GET /api/analyze/stream?demo=1` | Streamed demo |
+| `GET /api/health` | Returns service health and version. |
+| `GET /api/demo` | Returns the complete offline specimen report. |
+| `GET /api/analyze?url=<url>` | Analyzes a URL and returns JSON. Add `demo=1` for the specimen. |
+| `POST /api/analyze` | Analyzes JSON body `{ "url": "https://example.com" }`. Use `{ "demo": true }` for the specimen. |
+| `GET /api/analyze/stream?url=<url>` | Streams progress and then a result or failure as Server-Sent Events. |
+| `GET /api/analyze/stream?demo=1` | Streams the specimen with progress events. |
 
-Errors use a stable shape:
+A successful scan returns the report object. A failed request uses a stable error shape:
 
 ```json
-{ "error": { "message": "…", "code": "DNS_FAILED", "detail": "…" } }
+{
+  "error": {
+    "message": "That page could not be read.",
+    "code": "FETCH_FAILED",
+    "detail": ""
+  }
+}
 ```
 
-## Limits & privacy
+Streaming events have a `type` of `progress`, `result`, or `fail`. If a client disconnects, the active fetch is aborted where supported.
 
-- Public `http(s)` pages only, no logins. Private/local addresses are blocked
-  unless `ALLOW_PRIVATE=1` is set.
-- Reads at most 5 MB of HTML, 1.2 MB per stylesheet, 950 KB per script.
-- Up to 14 external stylesheets, 14 external scripts and 6 CSS `@import`s per
-  scan; the report notes anything skipped.
-- Rate limit: 60 scans per IP per 10 minutes (configurable).
-- Reports are generated in memory and returned; **nothing is stored**.
+## Safety and scan boundaries
 
-## Configuration
+- Only public `http(s)` pages are supported. Authentication and login flows are not.
+- Local and private network targets are blocked by default to reduce server-side request forgery risk. `ALLOW_PRIVATE=1` is intended for local development only.
+- The HTML document is capped at 5 MB; each external stylesheet at 1.2 MB; each external script at 950 KB.
+- A scan reads up to 14 linked stylesheets, 14 linked scripts, and 6 CSS imports. The report includes warnings when resources fail or limits are reached.
+- Source is analyzed statically. Browser-computed styles, executed scripts, shadow DOM, cross-origin iframe contents, canvas frames, and video contents are outside the scan.
+- Reports are assembled in memory and returned to the requester; this application does not persist scan reports.
 
-Copy `.env.example` to `.env`:
+## Development
 
-```
-PORT=4173             # server port
-ALLOW_PRIVATE=1       # allow localhost/private targets (development only)
-RATE_LIMIT_PER_10M=60 # scans per IP per 10 minutes
-NODE_ENV=production   # serves static assets with cache headers
+```bash
+npm run dev
 ```
 
-## Tests
+The server watches for changes. The test suites use Node’s built-in test runner:
 
-```
+```bash
 npm test
 ```
-
-Covers URL normalization, private-address blocking, CSS motion extraction,
-the inline-source pipeline and the demo specimen integrity.
-
-## Known limits
-
-Counts describe declarations and code signatures in delivered source. Browser
-computed styles, cross-origin iframes, shadow DOM, canvas frames, video
-contents and runtime-injected animations are not rendered or executed. A
-keyframe can be defined and never used; a single transition can affect every
-element on a page. Read the warnings in each report before quoting a number.
 
 ## License
 
