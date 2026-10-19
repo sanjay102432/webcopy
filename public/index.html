@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>webcopy — motion forensics for the web</title>
+  <meta name="description" content="Paste a public website link. webcopy reads its HTML, CSS and JavaScript and counts every keyframe, transition, scroll effect, animation library, design token and asset it can find.">
+  <meta name="theme-color" content="#f1ede3">
+  <meta name="color-scheme" content="light">
+  <meta property="og:title" content="webcopy — motion forensics for the web">
+  <meta property="og:description" content="Paste a link. See every animation, transition, library, design token and asset hiding in the source.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body class="is-landing">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="paper-grain" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="/" aria-label="webcopy home">
+        <span class="brand__glyph" aria-hidden="true"></span>
+        <span class="brand__word">webcopy</span>
+        <span class="brand__reg">®</span>
+      </a>
+      <p class="header-tag">Motion forensics for the web</p>
+      <nav class="header-nav" aria-label="Primary">
+        <a href="/#method">Method</a>
+        <a href="/#scope">Scope</a>
+        <button class="header-action js-demo-trigger" type="button" data-demo>See a specimen</button>
+        <button class="header-action js-new-scan" type="button" data-new-scan hidden>New scan</button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div id="landingView">
+      <section class="hero" aria-labelledby="heroTitle">
+        <div class="hero__copy">
+          <div class="hero__eyebrow">
+            <p class="eyebrow">Motion forensics / public read</p>
+            <span class="edition">No. 001</span>
+          </div>
+
+          <h1 class="hero__title" id="heroTitle">
+            <span class="hero__line">Every site</span>
+            <span class="hero__line hero__line--serif">has a <span class="marker">pulse.</span></span>
+          </h1>
+
+          <p class="hero__lede">
+            Paste a link. webcopy reads the delivered HTML, CSS and JavaScript,
+            then counts every keyframe, transition, scroll rig, library and
+            design token it can find — and gives you the receipts.
+          </p>
+
+          <form class="scan-form" id="scanForm" novalidate>
+            <div class="scan-form__top">
+              <label for="urlInput">Enter a website</label>
+              <span>Public pages / no login</span>
+            </div>
+            <div class="scan-shell" id="scanShell">
+              <span class="scan-shell__glyph" aria-hidden="true">↳</span>
+              <input
+                id="urlInput"
+                name="url"
+                type="text"
+                inputmode="url"
+                autocomplete="url"
+                autocapitalize="off"
+                spellcheck="false"
+                placeholder="yourfavorite.site"
+                aria-describedby="urlHint"
+              >
+              <button class="scan-submit" type="submit">
+                <span>Scan site</span>
+                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path d="M2 8h11M9 3.5 13.5 8 9 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+                </svg>
+              </button>
+            </div>
+            <p class="form-error" id="formError" role="alert" hidden></p>
+            <div class="samples" aria-label="Example websites">
+              <span class="samples__label">Try →</span>
+              <button type="button" data-sample="gsap.com">gsap.com</button>
+              <button type="button" data-sample="linear.app">linear.app</button>
+              <button type="button" data-sample="framer.com">framer.com</button>
+              <button type="button" data-demo>or a specimen</button>
+            </div>
+            <p class="form-meta" id="urlHint">
+              <span>Reads HTML / CSS / JS</span>
+              <span aria-hidden="true">·</span>
+              <span>Static, never screenshots</span>
+              <span aria-hidden="true">·</span>
+              <span>Nothing stored</span>
+            </p>
+          </form>
+        </div>
+
+        <aside class="hero__aside" aria-label="Specimen preview">
+          <div class="scope-caption">
+            <span>Preview / specimen 000</span>
+            <span class="scope-caption__line" aria-hidden="true"></span>
+            <span>Read only</span>
+          </div>
+
+          <div class="scope-card">
+            <div class="scope-card__bar">
+              <span class="live-tag"><i aria-hidden="true"></i>Readout</span>
+              <span>Static trace</span>
+              <span class="scope-card__id">W—000</span>
+            </div>
+            <div class="scope-plot" aria-hidden="true">
+              <div class="scope-grid-lines"></div>
+              <svg class="scope-wave" viewBox="0 0 560 210" preserveAspectRatio="none" focusable="false">
+                <path class="scope-wave__base" d="M0 120 C 40 120, 45 60, 85 60 S 128 160, 168 160 S 208 40, 250 40 S 290 150, 332 150 S 376 78, 416 78 S 454 128, 490 128 S 532 36, 560 36"/>
+                <path class="scope-wave__trace" d="M0 120 C 40 120, 45 60, 85 60 S 128 160, 168 160 S 208 40, 250 40 S 290 150, 332 150 S 376 78, 416 78 S 454 128, 490 128 S 532 36, 560 36"/>
+              </svg>
+              <span class="scope-scan"></span>
+              <span class="scope-label scope-label--a">keyframes</span>
+              <span class="scope-label scope-label--b">waapi</span>
+              <span class="scope-label scope-label--c">scroll</span>
+              <span class="scope-pip"></span>
+            </div>
+            <div class="scope-readout">
+              <div><span>Keyframes</span><strong>09</strong></div>
+              <div><span>Transitions</span><strong>30</strong></div>
+              <div><span>Libraries</span><strong>05</strong></div>
+              <div><span>Triggers</span><strong>55</strong></div>
+            </div>
+            <div class="scope-card__foot">
+              <span>Demo specimen / Aurelia</span>
+              <button type="button" class="scope-open" data-demo>Open readout ↗</button>
+            </div>
+          </div>
+
+          <p class="scope-note">
+            Every number in a report is pulled from delivered source.
+            <span>Measured, not guessed.</span>
+          </p>
+        </aside>
+      </section>
+
+      <div class="ticker" aria-hidden="true">
+        <div class="ticker__track">
+          <span>Keyframes</span><i>◆</i><span>Transitions</span><i>◆</i><span>Scroll systems</span><i>◆</i><span>WebGL</span><i>◆</i><span>Lottie</span><i>◆</i><span>View transitions</span><i>◆</i><span>GSAP</span><i>◆</i><span>Design tokens</span><i>◆</i>
+          <span>Keyframes</span><i>◆</i><span>Transitions</span><i>◆</i><span>Scroll systems</span><i>◆</i><span>WebGL</span><i>◆</i><span>Lottie</span><i>◆</i><span>View transitions</span><i>◆</i><span>GSAP</span><i>◆</i><span>Design tokens</span><i>◆</i>
+        </div>
+      </div>
+
+      <section class="manifesto" id="method" aria-labelledby="methodTitle">
+        <div class="manifesto__head">
+          <div>
+            <p class="eyebrow">01 / Method</p>
+            <h2 id="methodTitle">We don’t watch.<br><span class="serif">We read.</span></h2>
+          </div>
+          <div class="manifesto__copy">
+            <p>
+              Most motion audits rely on a recording. We prefer the source.
+              webcopy fetches the public document, follows its stylesheets and
+              scripts, and reconstructs what the page <em>intends</em> to do.
+            </p>
+            <p>
+              That means you see the systems — not just the frames that happened
+              to be on screen. The result is a dense, exportable readout for
+              designers, engineers and the incurably curious.
+            </p>
+          </div>
+        </div>
+
+        <div class="method-ledger">
+          <article class="method-step" data-land-reveal>
+            <span class="method-step__num">01</span>
+            <div class="method-step__title">
+              <h3>Capture</h3>
+              <p>Read the room.</p>
+            </div>
+            <p class="method-step__body">
+              We fetch the public page and its linked stylesheets and scripts
+              within strict size and network limits. No browser rendering, no
+              screenshots, no guessing from a video.
+            </p>
+            <div class="method-step__meta">
+              <span>HTML</span><span>CSS</span><span>JS</span>
+            </div>
+          </article>
+
+          <article class="method-step" data-land-reveal>
+            <span class="method-step__num">02</span>
+            <div class="method-step__title">
+              <h3>Trace</h3>
+              <p>Follow the signal.</p>
+            </div>
+            <p class="method-step__body">
+              Every <code>@keyframes</code> block, animation shorthand,
+              transition, scroll timeline and JavaScript trigger is pulled into
+              one normalized record. Libraries and browser APIs are named.
+            </p>
+            <div class="method-step__meta">
+              <span>Motion</span><span>Libraries</span><span>Scroll</span>
+            </div>
+          </article>
+
+          <article class="method-step" data-land-reveal>
+            <span class="method-step__num">03</span>
+            <div class="method-step__title">
+              <h3>Read</h3>
+              <p>Leave with receipts.</p>
+            </div>
+            <p class="method-step__body">
+              Colors, type stacks, radii, shadows, assets, headings, links and
+              forms become a searchable field report. Download the whole thing
+              as clean JSON.
+            </p>
+            <div class="method-step__meta">
+              <span>Design</span><span>Assets</span><span>JSON</span>
+            </div>
+          </article>
+        </div>
+
+        <aside class="method-note" data-land-reveal>
+          <span class="method-note__stamp">Field note</span>
+          <p>
+            This is a read of declarations. A keyframe can exist and never be
+            used. A transition can be one line and touch every button on the
+            page. We tell you which is which.
+          </p>
+        </aside>
+      </section>
+
+      <section class="dissection" id="scope" aria-labelledby="scopeTitle">
+        <div class="dissection__inner">
+          <div class="dissection__head">
+            <div>
+              <p class="eyebrow eyebrow--acid">02 / Scope</p>
+              <h2 id="scopeTitle">Anatomy<br>of a <span class="serif">page.</span></h2>
+            </div>
+            <p class="dissection__lede">
+              Four ledgers, one read. The report is built to be browsed like a
+              specimen: start with motion, then wander into the design system,
+              the asset list and the source inventory.
+            </p>
+          </div>
+
+          <div class="scope-grid">
+            <article class="scope-col" data-land-reveal>
+              <span class="scope-col__index">A</span>
+              <h3>Motion</h3>
+              <ul>
+                <li>Keyframes &amp; frame maps</li>
+                <li>Animation assignments</li>
+                <li>Transition rules</li>
+                <li>JS libraries &amp; triggers</li>
+                <li>Scroll, SVG &amp; canvas</li>
+                <li>Reduced-motion coverage</li>
+              </ul>
+            </article>
+            <article class="scope-col" data-land-reveal>
+              <span class="scope-col__index">B</span>
+              <h3>Design</h3>
+              <ul>
+                <li>Color frequency</li>
+                <li>Type families &amp; scale</li>
+                <li>Radii &amp; shadows</li>
+                <li>Gradients</li>
+                <li>CSS custom properties</li>
+                <li>Breakpoints</li>
+              </ul>
+            </article>
+            <article class="scope-col" data-land-reveal>
+              <span class="scope-col__index">C</span>
+              <h3>Assets</h3>
+              <ul>
+                <li>Images &amp; srcsets</li>
+                <li>Video &amp; embeds</li>
+                <li>Stylesheets &amp; scripts</li>
+                <li>Font files</li>
+                <li>CSS backgrounds</li>
+                <li>Every outbound link</li>
+              </ul>
+            </article>
+            <article class="scope-col" data-land-reveal>
+              <span class="scope-col__index">D</span>
+              <h3>Structure</h3>
+              <ul>
+                <li>Heading outline</li>
+                <li>Landmarks &amp; sections</li>
+                <li>Forms &amp; input types</li>
+                <li>Meta &amp; social cards</li>
+                <li>Structured data</li>
+                <li>Page copy weight</li>
+              </ul>
+            </article>
+          </div>
+
+          <details class="specimen-drawer" data-auto-open>
+            <summary>
+              <span class="specimen-drawer__eyebrow">Specimen drawer / 000</span>
+              <span class="specimen-drawer__title">Open a demo readout</span>
+              <span class="specimen-drawer__cue">Pull <i aria-hidden="true">↓</i></span>
+            </summary>
+            <div class="specimen-drawer__body">
+              <div class="specimen-drawer__stats">
+                <div><span>Motion score</span><strong>100</strong><small>Cinematic / 100</small></div>
+                <div><span>Keyframes</span><strong>09</strong><small>declared in CSS</small></div>
+                <div><span>Libraries</span><strong>05</strong><small>GSAP, Lenis + more</small></div>
+                <div><span>Assets</span><strong>12</strong><small>mapped references</small></div>
+              </div>
+              <div class="specimen-drawer__foot">
+                <p>
+                  A fictional studio site, built to exercise every corner of the
+                  report. No network required.
+                </p>
+                <button class="btn btn--acid" type="button" data-demo>Run the specimen <span aria-hidden="true">↗</span></button>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="closing">
+        <p class="eyebrow">03 / Begin</p>
+        <h2>Paste a link.<br><span class="serif">Read the room.</span></h2>
+        <div class="closing__actions">
+          <button class="btn btn--ink" type="button" data-focus-scan>Scan a website <span aria-hidden="true">↑</span></button>
+          <button class="btn btn--text" type="button" data-demo>See the specimen <span aria-hidden="true">↗</span></button>
+        </div>
+        <p class="closing__note">
+          Public pages only. Static analysis. Built for people who open the
+          inspector before they take a screenshot.
+        </p>
+      </section>
+    </div>
+
+    <div id="reportView" class="report-view" hidden></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer__top">
+      <div class="site-footer__brand">
+        <span class="brand__glyph" aria-hidden="true"></span>
+        <p>webcopy is a small motion<br>forensics lab for the web.</p>
+      </div>
+      <div class="site-footer__links">
+        <p class="footer-label">Read</p>
+        <a href="/#method">Method</a>
+        <a href="/#scope">Scope</a>
+        <button type="button" data-demo>Demo specimen</button>
+      </div>
+      <div class="site-footer__links">
+        <p class="footer-label">Machine</p>
+        <a href="/api/health">Health</a>
+        <a href="/api/demo">Demo JSON</a>
+        <span>v1.0 / local first</span>
+      </div>
+      <div class="site-footer__links">
+        <p class="footer-label">Fine print</p>
+        <span>No screenshots</span>
+        <span>No stored reports</span>
+        <span>Public http(s) only</span>
+      </div>
+    </div>
+    <p class="site-footer__wordmark" aria-hidden="true">webcopy</p>
+    <div class="site-footer__base">
+      <span>© <span id="year">2026</span> webcopy</span>
+      <span>Measured, not guessed.</span>
+    </div>
+  </footer>
+
+  <div class="scan-overlay" id="scanOverlay" hidden>
+    <div class="scan-panel" role="dialog" aria-modal="true" aria-labelledby="scanTitle" aria-describedby="scanStatus">
+      <div class="scan-panel__bar">
+        <span class="live-tag"><i aria-hidden="true"></i>Scan in progress</span>
+        <span id="scanSpecimen">Specimen / public read</span>
+        <button type="button" class="scan-cancel" id="scanCancel">Cancel <span aria-hidden="true">ESC</span></button>
+      </div>
+
+      <div class="scan-live" id="scanLive">
+        <div class="scan-head">
+          <div>
+            <p class="scan-kicker">Target</p>
+            <h2 id="scanTitle" class="scan-host">website</h2>
+            <p class="scan-mode" id="scanMode">Fetching public source</p>
+          </div>
+          <div class="scan-percent" aria-hidden="true"><span id="scanPercent">00</span><small>%</small></div>
+        </div>
+
+        <div class="scan-progress" role="progressbar" aria-label="Analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="scanProgress">
+          <span id="scanProgressFill"></span>
+        </div>
+
+        <div class="scan-body">
+          <ol class="scan-steps" id="scanSteps">
+            <li data-step="fetch"><span class="scan-step__dot"></span><span>Fetch the document</span><span class="scan-step__state">pending</span></li>
+            <li data-step="styles"><span class="scan-step__dot"></span><span>Read styles &amp; tokens</span><span class="scan-step__state">pending</span></li>
+            <li data-step="scripts"><span class="scan-step__dot"></span><span>Trace scripts &amp; libraries</span><span class="scan-step__state">pending</span></li>
+            <li data-step="motion"><span class="scan-step__dot"></span><span>Count motion signatures</span><span class="scan-step__state">pending</span></li>
+            <li data-step="finish"><span class="scan-step__dot"></span><span>Bind the report</span><span class="scan-step__state">pending</span></li>
+          </ol>
+          <div class="scan-readout" aria-live="polite" id="scanStatus">
+            <p class="scan-readout__label">Now reading</p>
+            <p class="scan-readout__line" id="scanLog">Resolving the address…</p>
+            <p class="scan-readout__detail" id="scanDetail">Only public http(s) pages, within the size limits.</p>
+          </div>
+        </div>
+
+        <div class="scan-panel__foot">
+          <span>Static source read / no rendering</span>
+          <span>—</span>
+          <span>webcopy v1.0</span>
+        </div>
+      </div>
+
+      <div class="scan-fail" id="scanFail" hidden>
+        <p class="scan-kicker">Read interrupted</p>
+        <h2 id="scanFailTitle">We couldn’t finish that read.</h2>
+        <p class="scan-fail__message" id="scanFailMessage" role="alert"></p>
+        <p class="scan-fail__code" id="scanFailCode"></p>
+        <div class="scan-fail__actions">
+          <button class="btn btn--acid" type="button" data-retry-scan>Try again <span aria-hidden="true">↻</span></button>
+          <button class="btn btn--ghost-light" type="button" data-error-demo>Open the specimen instead</button>
+          <button class="btn btn--text-light" type="button" data-close-overlay>Back</button>
+        </div>
+        <p class="scan-fail__hint">
+          Try a public homepage, avoid pages behind a login, and give
+          JavaScript-heavy sites a moment.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <noscript>
+    <div class="noscript">
+      webcopy needs JavaScript enabled to fetch and render the report.
+    </div>
+  </noscript>
+</body>
+</html>

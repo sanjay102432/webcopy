@@ -1,0 +1,37 @@
+{
+  "name": "webcopy",
+  "version": "1.0.0",
+  "description": "Motion forensics for the web. Paste a URL and read every keyframe, transition, scroll effect, library, design token and asset a page ships.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "dev": "node --watch --env-file-if-exists=.env server/index.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "animation",
+    "css",
+    "web-design",
+    "analysis",
+    "motion",
+    "audit"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "compression": "^1.8.2",
+    "express": "^5.1.0",
+    "ipaddr.js": "^2.2.0",
+    "postcss": "^8.5.6",
+    "postcss-safe-parser": "^7.0.1",
+    "undici": "^7.13.0"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}
