@@ -57,7 +57,7 @@ const DEMO_HTML = `<!doctype html>
         </div>
       </div>
 
-      <figure class="hero__visual" data-reveal>
+      <figure class="hero__visual" data-reveal data-scroll-speed="1.6">
         <img
           src="https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=1400&q=85"
           srcset="https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=700&q=80 700w, https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=1400&q=85 1400w"
@@ -460,7 +460,7 @@ a { color: inherit; text-decoration: none; }
 .site-footer a:hover { color: var(--ember); transform: translateX(3px); }
 .footer-label { font-size: 10px !important; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink) !important; margin: 0 !important; }
 .copyright { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 22px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
-.scroll-progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; transform-origin: left; background: var(--ember); z-index: 90; animation: grow 1s linear both; animation-timeline: scroll(root); }
+.scroll-progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; transform-origin: left; background: var(--ember); z-index: 90; animation: grow 1s linear both; animation-timeline: scroll(root); animation-range: entry 0% cover 60%; }
 @keyframes reveal {
   from { opacity: 0; transform: translateY(40px); }
   to { opacity: 1; transform: translateY(0); }
@@ -501,7 +501,7 @@ a { color: inherit; text-decoration: none; }
   100% { transform: rotate(360deg) translateX(18px) rotate(-360deg); }
 }
 @supports (animation-timeline: scroll()) {
-  .scroll-progress { animation-name: grow; animation-duration: auto; animation-timeline: scroll(root); }
+  .scroll-progress { animation-name: grow; animation-duration: auto; animation-timeline: scroll(root); animation-range: entry 0% cover 60%; }
 }
 @media (max-width: 1080px) {
   .hero { grid-template-columns: 1fr; }
@@ -562,6 +562,12 @@ gsap.utils.toArray('[data-reveal]').forEach(function (element) {
   });
 });
 
+gsap.to('.reel__video', {
+  scale: 1.06,
+  ease: 'none',
+  scrollTrigger: { trigger: '.reel__video', start: 'top bottom', end: 'bottom top', scrub: 1, pin: true }
+});
+
 gsap.utils.toArray('[data-aos]').forEach(function (element) {
   gsap.to(element, {
     opacity: 1,
@@ -584,7 +590,7 @@ const observer = new IntersectionObserver(function (entries) {
     entry.target.classList.add('is-visible');
     document.documentElement.style.setProperty('--last-reveal', Date.now().toString());
   });
-}, { threshold: 0.2 });
+}, { threshold: 0.2, rootMargin: '0px 0px -12% 0px' });
 
 document.querySelectorAll('.card, .approach__steps article').forEach(function (node) {
   observer.observe(node);
@@ -600,11 +606,13 @@ window.addEventListener('pointermove', function (event) {
 });
 
 window.addEventListener('scroll', function () {
+  const offset = window.scrollY;
   const progress = document.querySelector('.scroll-progress');
   if (!progress) return;
+  document.body.dataset.scrolled = offset > 24 ? 'yes' : 'no';
   const rect = document.body.getBoundingClientRect();
   progress.style.transform = 'scaleX(' + Math.min(1, -rect.top / (rect.height - innerHeight)) + ')';
-});
+}, { passive: true });
 
 const bars = document.querySelectorAll('.meter__fill');
 bars.forEach(function (bar) {

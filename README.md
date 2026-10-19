@@ -20,8 +20,8 @@ screenshots or executes the target page.
 
 | Ledger | Contents |
 | --- | --- |
-| **A · Motion** | `@keyframes` definitions and their frame maps, animation shorthand/longhand assignments, transition rules, easing curves, duration statistics, motion libraries (GSAP, Lenis, AOS, Lottie, Swiper, Three.js, …), JS runtime triggers (`requestAnimationFrame`, WAAPI, observers, pointer tracking, view transitions), scroll systems (`animation-timeline`, scroll snap, smooth scroll, ScrollTrigger, scroll libraries), special surfaces (SMIL, canvas, WebGL, marquee, animated GIFs, autoplay video), reduced-motion coverage |
-| **B · Design** | Color frequency, type families with specimens, `@font-face` rules, font files, type scale, radii, shadows, gradients, CSS custom properties, breakpoints, registered `@property` definitions |
+| **A · Motion** | `@keyframes` definitions and their frame maps, animation shorthand/longhand assignments, transition rules, easing curves, duration statistics, motion libraries (GSAP, Lenis, AOS, Lottie, Swiper, Three.js, …), JS runtime triggers (`requestAnimationFrame`, WAAPI, observers, pointer tracking, view transitions), scroll systems (`animation-timeline` with ranges and named timelines, scroll snap types, smooth scroll, sticky elements with offsets, ScrollTrigger configs — scrub, pin, start/end, toggleClass — IntersectionObserver thresholds/rootMargins, scroll position reads, scroll libraries), special surfaces (SMIL, canvas, WebGL, marquee, animated GIFs, autoplay video), reduced-motion coverage |
+| **B · Design** | Color frequency, type families with specimens, per-rule typography (family, size, weight, line-height, letter-spacing, transforms), measurement buckets for weights/line-heights/spacing, `@font-face` rules, font files, type scale, radii, shadows, gradients, CSS custom properties, breakpoints, registered `@property` definitions |
 | **C · Assets** | Images with alt-text audit, srcsets and picture sources, video elements and files, embeds (YouTube/Vimeo/…), iframes, stylesheets, scripts, fonts, CSS-referenced files, meta images, every internal/external/mailto link and external domain — all searchable and filterable |
 | **D · Structure** | Metadata (title, description, canonical, OG/Twitter, viewport…), detected frameworks/CMS/builders, heading outline, sections, landmarks, forms and input types, word count, JSON-LD |
 | **E · Source** | Page status, byte counts for HTML/CSS/JS, resources read/failed/skipped, warnings, reading notes and the full machine-readable JSON |
@@ -31,11 +31,20 @@ parts. It describes motion *density in the source*, not visual quality,
 performance or accessibility.
 
 Every report also carries one **agent prompt** (`report.prompt`): a single
-copy-ready brief that restates the measured design system and motion behaviour —
-keyframes, animation assignments, transitions, easings, tokens, libraries and
-reduced-motion rules — written so an AI agent or a teammate can rebuild the site
-without ever seeing it. The UI shows it right after the design ledger with copy
-and download-as-Markdown actions.
+copy-ready brief written so an AI agent or a teammate can rebuild the site
+without ever seeing it. It walks through, in order: the target and page
+skeleton; the design system (palette, tokens, shape, breakpoints);
+**typography** (families with face/file details, grouped type specimens,
+size/weight/line-height/spacing buckets); the **image, video, embed and meta
+inventory** (URLs, alt text, dimensions, srcset and poster details); the
+**motion system** (every `@keyframes`, animation assignment, transition,
+easing and library); and a **scroll choreography** section that details every
+scroll behaviour found — scroll-driven animation timelines with their ranges,
+sticky elements and offsets, scroll snap, scripted scrub/pin/start/end
+configs, IntersectionObserver thresholds and root margins, smooth-scroll
+library options, and markup `data-*` reveal hooks with sample values — plus
+reduced-motion and fidelity rules. The UI shows it right after the design
+ledger with copy and download-as-Markdown actions.
 
 ## How it works
 

@@ -556,14 +556,34 @@ export function analyzeDocument({ $, html, baseUrl, finalUrl }) {
   const inlineEvents = new Map();
   let motionEventHandlers = 0;
   let elementsScanned = 0;
+
+  const isMotionAttribute = (key) =>
+    MOTION_DATA_ATTRIBUTES.includes(key) ||
+    key.startsWith('data-scroll') ||
+    key.startsWith('data-aos') ||
+    key.startsWith('data-parallax') ||
+    key.startsWith('data-reveal') ||
+    key.startsWith('data-anim') ||
+    key.startsWith('data-wow');
+
   $('*').each((_, node) => {
     elementsScanned += 1;
     if (elementsScanned > 8000) return false;
     const attribs = node.attribs;
     if (!attribs) return;
     for (const key of Object.keys(attribs)) {
-      if (MOTION_DATA_ATTRIBUTES.includes(key)) {
-        dataAttributes.set(key, (dataAttributes.get(key) || 0) + 1);
+      if (isMotionAttribute(key)) {
+        let entry = dataAttributes.get(key);
+        if (!entry) {
+          entry = { count: 0, samples: [] };
+          dataAttributes.set(key, entry);
+        }
+        entry.count += 1;
+        const raw = attribs[key];
+        const sample = collapse(raw ? String(raw) : 'present', 60);
+        if (sample && entry.samples.length < 5 && !entry.samples.includes(sample)) {
+          entry.samples.push(sample);
+        }
       }
       if (key.startsWith('on')) {
         inlineEvents.set(key, (inlineEvents.get(key) || 0) + 1);
@@ -691,7 +711,9 @@ export function analyzeDocument({ $, html, baseUrl, finalUrl }) {
       jsonLd,
     },
     motionMarkup: {
-      dataAttributes: [...dataAttributes.entries()].map(([name, count]) => ({ name, count })),
+      dataAttributes: [...dataAttributes.entries()]
+        .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
+        .map(([name, entry]) => ({ name, count: entry.count, samples: entry.samples })),
       inlineEvents: [...inlineEvents.entries()].map(([name, count]) => ({ name, count })),
       motionEventHandlers,
       elementsScanned,

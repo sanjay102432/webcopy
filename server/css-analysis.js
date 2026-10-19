@@ -55,6 +55,21 @@ const TRANSITION_PROPS = new Set([
   'transition-behavior',
 ]);
 
+const TYPOGRAPHY_PROPS = new Set([
+  'font-size',
+  'font-family',
+  'font-weight',
+  'font-style',
+  'line-height',
+  'letter-spacing',
+  'text-transform',
+  'text-align',
+  'font-feature-settings',
+  'font-variation-settings',
+]);
+
+const MAX_TYPOGRAPHY_RULES = 260;
+
 const TRANSITION_LONGHANDS = [
   ['transition-property', 'property'],
   ['transition-duration', 'duration'],
@@ -309,6 +324,31 @@ function parseTransitions(rule, customProps) {
   return entries;
 }
 
+function parseTypography(rule) {
+  const decls = effectiveDecls(rule, TYPOGRAPHY_PROPS);
+  if (!decls.size) return null;
+
+  const read = (prop, maxLength) => {
+    const value = decls.get(prop)?.value;
+    return value ? collapse(value, maxLength) : '';
+  };
+
+  const entry = {
+    size: read('font-size', 60),
+    family: read('font-family', 120),
+    weight: read('font-weight', 30),
+    style: read('font-style', 30),
+    lineHeight: read('line-height', 40),
+    letterSpacing: read('letter-spacing', 40),
+    transform: read('text-transform', 30),
+    align: read('text-align', 30),
+    features: read('font-feature-settings', 80),
+  };
+
+  if (!entry.size && !entry.family && !entry.weight) return null;
+  return entry;
+}
+
 function cleanFamily(value) {
   const family = collapse(stripQuotes(value), 90);
   if (!family || family.includes('var(')) return '';
@@ -358,14 +398,28 @@ function createState() {
       disablesMotion: 0,
       sources: [],
     },
+    typography: {
+      rules: [],
+      rulesTotal: 0,
+      weights: new Map(),
+      lineHeights: new Map(),
+      letterSpacings: new Map(),
+      transforms: new Map(),
+    },
     scroll: {
       animationTimelineUses: 0,
       timelineSelectors: [],
+      timelineUses: [],
+      ranges: new Map(),
       scrollTimelines: 0,
+      definedTimelines: [],
       smoothScrolling: 0,
       scrollSnap: 0,
+      snapTypes: new Map(),
       viewTransitions: 0,
       stickyRules: 0,
+      stickySelectors: [],
+      fixedBackgrounds: 0,
       supportsAnimationTimeline: 0,
     },
     design: {
@@ -702,31 +756,105 @@ function processRule(rule, source, state, selectorOverride = '') {
     }
   }
 
+  const typography = parseTypography(rule);
+  if (typography) {
+    state.typography.rulesTotal += 1;
+    if (typography.weight && typography.weight !== 'normal' && !typography.weight.includes('var(')) {
+      addCount(state.typography.weights, typography.weight);
+    }
+    if (typography.lineHeight && !typography.lineHeight.includes('var(')) {
+      addCount(state.typography.lineHeights, typography.lineHeight);
+    }
+    if (typography.letterSpacing && typography.letterSpacing.toLowerCase() !== 'normal') {
+      addCount(state.typography.letterSpacings, typography.letterSpacing);
+    }
+    if (typography.transform && typography.transform.toLowerCase() !== 'none') {
+      addCount(state.typography.transforms, typography.transform);
+    }
+    if (state.typography.rules.length < MAX_TYPOGRAPHY_RULES) {
+      state.typography.rules.push({
+        ...typography,
+        selector,
+        media,
+        source: source.label,
+        line,
+      });
+    }
+  }
+
   rule.walkDecls((decl) => {
     const { prop } = normalizeProp(decl.prop);
     const value = decl.value.trim().toLowerCase();
     if (!value || value === 'none' || value === 'normal' || value === 'initial') return;
+
+    const sibling = (name) =>
+      (rule.nodes || []).find(
+        (node) => node.type === 'decl' && normalizeProp(node.prop).prop === name,
+      );
 
     if (prop === 'animation-timeline') {
       state.scroll.animationTimelineUses += 1;
       if (state.scroll.timelineSelectors.length < 12) {
         state.scroll.timelineSelectors.push(selector);
       }
+      if (state.scroll.timelineUses.length < 16) {
+        const rangeDecl = sibling('animation-range');
+        const entry = {
+          selector: collapse(selector, 160),
+          timeline: collapse(decl.value.trim(), 80),
+          range: rangeDecl ? collapse(rangeDecl.value.trim(), 60) : '',
+          source: source.label,
+        };
+        const duplicate = state.scroll.timelineUses.some(
+          (existing) =>
+            existing.selector === entry.selector &&
+            existing.timeline === entry.timeline &&
+            existing.range === entry.range,
+        );
+        if (!duplicate) state.scroll.timelineUses.push(entry);
+      }
+    }
+    if (
+      prop === 'animation-range' ||
+      prop === 'animation-range-start' ||
+      prop === 'animation-range-end'
+    ) {
+      addCount(state.scroll.ranges, collapse(decl.value.trim(), 60));
     }
     if (prop === 'scroll-timeline-name' || prop === 'view-timeline-name') {
       state.scroll.scrollTimelines += 1;
+      if (state.scroll.definedTimelines.length < 12) {
+        state.scroll.definedTimelines.push(`${prop}: ${collapse(decl.value.trim(), 70)}`);
+      }
     }
     if (prop === 'scroll-behavior' && value.includes('smooth')) {
       state.scroll.smoothScrolling += 1;
     }
     if (prop === 'scroll-snap-type') {
       state.scroll.scrollSnap += 1;
+      addCount(state.scroll.snapTypes, collapse(decl.value.trim(), 50));
     }
     if (prop === 'view-transition-name') {
       state.scroll.viewTransitions += 1;
     }
     if (prop === 'position' && value === 'sticky') {
       state.scroll.stickyRules += 1;
+      if (state.scroll.stickySelectors.length < 16) {
+        const offsetDecl = (rule.nodes || []).find(
+          (node) =>
+            node.type === 'decl' &&
+            ['top', 'bottom', 'inset-block-start', 'inset-block-end'].includes(
+              normalizeProp(node.prop).prop,
+            ),
+        );
+        state.scroll.stickySelectors.push({
+          selector: collapse(selector, 160),
+          offset: offsetDecl ? collapse(offsetDecl.value.trim(), 40) : '',
+        });
+      }
+    }
+    if (prop === 'background-attachment' && value === 'fixed') {
+      state.scroll.fixedBackgrounds += 1;
     }
   });
 }
@@ -851,8 +979,20 @@ function buildResult(state) {
       sources: state.reducedMotion.sources,
     },
     scroll: {
-      ...state.scroll,
+      animationTimelineUses: state.scroll.animationTimelineUses,
       timelineSelectors: state.scroll.timelineSelectors.slice(0, 10),
+      timelineUses: state.scroll.timelineUses.slice(0, 16),
+      ranges: sortedCounts(state.scroll.ranges, 10),
+      scrollTimelines: state.scroll.scrollTimelines,
+      definedTimelines: state.scroll.definedTimelines.slice(0, 12),
+      smoothScrolling: state.scroll.smoothScrolling,
+      scrollSnap: state.scroll.scrollSnap,
+      snapTypes: sortedCounts(state.scroll.snapTypes, 6),
+      viewTransitions: state.scroll.viewTransitions,
+      stickyRules: state.scroll.stickyRules,
+      stickySelectors: state.scroll.stickySelectors.slice(0, 16),
+      fixedBackgrounds: state.scroll.fixedBackgrounds,
+      supportsAnimationTimeline: state.scroll.supportsAnimationTimeline,
     },
     design: {
       colors,
@@ -868,6 +1008,14 @@ function buildResult(state) {
         .slice(0, 80),
       breakpoints,
       fontSizes: sortedCounts(state.design.fontSizes, 14),
+      typography: {
+        rules: state.typography.rules,
+        rulesTotal: state.typography.rulesTotal,
+        weights: sortedCounts(state.typography.weights, 12),
+        lineHeights: sortedCounts(state.typography.lineHeights, 14),
+        letterSpacings: sortedCounts(state.typography.letterSpacings, 14),
+        transforms: sortedCounts(state.typography.transforms, 8),
+      },
       registeredProperties: state.design.registeredProperties,
       inlineStyleCount: state.design.inlineStyleCount,
     },
@@ -883,6 +1031,7 @@ function buildResult(state) {
       transitions: state.transitionsTotal > MAX_TRANSITION_USES,
       cssAssets: state.assets.cssAssetsTotal > MAX_CSS_ASSETS,
       fontFaces: state.design.fontFaces.length >= MAX_FONT_FACES,
+      typography: state.typography.rulesTotal > MAX_TYPOGRAPHY_RULES,
     },
   };
 }

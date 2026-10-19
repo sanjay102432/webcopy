@@ -1,4 +1,4 @@
-import { mergeSignals } from './analyzer-utils.js';
+import { collapse, mergeSignals } from './analyzer-utils.js';
 
 const SIGNAL_DEFINITIONS = [
   {
@@ -330,6 +330,168 @@ function cloneRegex(regex, { global = false } = {}) {
   return new RegExp(regex.source, flags);
 }
 
+const SCROLL_DETAIL_DEFINITIONS = [
+  {
+    key: 'scrub',
+    label: 'Scrubbed scroll timelines (scrub)',
+    regex: /scrub\s*:\s*([^,;}\n)]{1,40})/g,
+  },
+  {
+    key: 'pin',
+    label: 'Pinned sections (pin)',
+    regex: /pin\s*:\s*([^,;}\n)]{1,40})/g,
+  },
+  {
+    key: 'toggleClass',
+    label: 'Class toggles on scroll',
+    regex: /toggleClass\s*:\s*([^,;}\n)]{1,60})/g,
+  },
+  {
+    key: 'start',
+    label: 'Scroll timeline start points',
+    regex: /\bstart\s*:\s*['"]([^'"]{1,50})['"]/g,
+  },
+  {
+    key: 'end',
+    label: 'Scroll timeline end points',
+    regex: /\bend\s*:\s*['"]([^'"]{1,50})['"]/g,
+  },
+  {
+    key: 'snapJs',
+    label: 'Scroll snapping configured in JS',
+    regex: /snap\s*:\s*([^,;}\n)]{1,60})/g,
+  },
+  {
+    key: 'threshold',
+    label: 'IntersectionObserver thresholds',
+    regex: /threshold\s*:\s*(\[[^\]]{1,80}\]|[\d.]{1,8})/g,
+  },
+  {
+    key: 'rootMargin',
+    label: 'IntersectionObserver root margins',
+    regex: /rootMargin\s*:\s*['"]([^'"]{1,60})['"]/g,
+  },
+  {
+    key: 'scrollOptions',
+    label: 'Programmatic scroll options',
+    regex: /scroll(?:To|IntoView)\s*\(\s*\{([^}]{1,90})\}/g,
+  },
+];
+
+const SMOOTH_SCROLL_DEFINITIONS = [
+  {
+    key: 'lenisOptions',
+    label: 'Lenis smooth-scroll options',
+    regex: /new\s+Lenis\s*\(\s*\{([^}]{1,400})\}/g,
+  },
+  {
+    key: 'locomotiveOptions',
+    label: 'Locomotive Scroll options',
+    regex: /new\s+LocomotiveScroll\s*\(\s*\{([^}]{1,400})\}/g,
+  },
+  {
+    key: 'smootherOptions',
+    label: 'GSAP ScrollSmoother options',
+    regex: /ScrollSmoother\.create\s*\(\s*\{([^}]{1,400})\}/g,
+  },
+];
+
+function detailFor(map, key, label) {
+  if (!map.has(key)) {
+    map.set(key, { key, label, count: 0, samples: [], sources: [] });
+  }
+  return map.get(key);
+}
+
+function collectScrollDetails(jsSources) {
+  const details = new Map();
+  const thresholds = [];
+  const rootMargins = [];
+
+  for (const source of jsSources) {
+    const content = source.content || '';
+    if (!content) continue;
+    const label = source.label || source.url || 'inline script';
+
+    for (const definition of SCROLL_DETAIL_DEFINITIONS) {
+      const re = new RegExp(definition.regex.source, definition.regex.flags);
+      let match;
+      while ((match = re.exec(content))) {
+        const entry = detailFor(details, definition.key, definition.label);
+        entry.count += 1;
+        if (!entry.sources.includes(label) && entry.sources.length < 4) entry.sources.push(label);
+        const raw = String(match[1] || '').trim().replace(/^['"]|['"]$/g, '');
+        const sample = collapse(raw.replace(/^!0$/, 'true').replace(/^!1$/, 'false'), 60);
+        if (definition.key === 'threshold' && sample && thresholds.length < 8 && !thresholds.includes(sample)) {
+          thresholds.push(sample);
+        }
+        if (definition.key === 'rootMargin' && sample && rootMargins.length < 8 && !rootMargins.includes(sample)) {
+          rootMargins.push(sample);
+        }
+        const usable =
+          sample &&
+          !/^[A-Za-z]$/.test(sample) &&
+          !/Object|undefined|=>/.test(sample);
+        if (usable && entry.samples.length < 6 && !entry.samples.includes(sample)) {
+          entry.samples.push(sample);
+        }
+        if (match[0].length === 0) re.lastIndex += 1;
+      }
+    }
+
+    for (const definition of SMOOTH_SCROLL_DEFINITIONS) {
+      const re = new RegExp(definition.regex.source, definition.regex.flags);
+      let match;
+      while ((match = re.exec(content))) {
+        const entry = detailFor(details, definition.key, definition.label);
+        entry.count += 1;
+        if (!entry.sources.includes(label) && entry.sources.length < 4) entry.sources.push(label);
+        const pairRe = /([A-Za-z_$][\w$]*)\s*:\s*([^,}]{1,40})/g;
+        let pair;
+        while ((pair = pairRe.exec(match[1] || ''))) {
+          const rawPair = pair[2]
+            .trim()
+            .replace(/^['"]|['"]$/g, '')
+            .replace(/^!0$/, 'true')
+            .replace(/^!1$/, 'false');
+          const sample = collapse(`${pair[1]}: ${rawPair}`, 56);
+          if (entry.samples.length < 8 && !entry.samples.includes(sample)) {
+            entry.samples.push(sample);
+          }
+        }
+        if (match[0].length === 0) re.lastIndex += 1;
+      }
+    }
+
+    const reads = countMatches(/\b(?:window\.)?(?:scrollY|pageYOffset|scrollTop)\b/g, content);
+    if (reads) {
+      const entry = detailFor(details, 'scrollReads', 'Scroll position reads (scrollY / scrollTop)');
+      entry.count += reads;
+      if (!entry.sources.includes(label) && entry.sources.length < 4) entry.sources.push(label);
+    }
+
+    const scrolls = countMatches(/\bscrollTo\s*\(|\bscrollIntoView\s*\(/g, content);
+    if (scrolls) {
+      const entry = detailFor(details, 'programmaticScroll', 'Programmatic scrolls (scrollTo / scrollIntoView)');
+      entry.count += scrolls;
+      if (!entry.sources.includes(label) && entry.sources.length < 4) entry.sources.push(label);
+    }
+  }
+
+  const items = [...details.values()]
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, 14);
+
+  return {
+    items,
+    thresholds,
+    rootMargins,
+    scrollReads: details.get('scrollReads')?.count || 0,
+    programmaticScrolls: details.get('programmaticScroll')?.count || 0,
+  };
+}
+
 function countMatches(regex, text) {
   if (!text) return 0;
   const re = cloneRegex(regex, { global: true });
@@ -468,5 +630,6 @@ export function analyzeScripts(jsSources, { motionMarkup, html = '' } = {}) {
     scrollListenerCount,
     scrollTimelineCount,
     webglContexts: signalMap.get('webgl')?.count || 0,
+    scrollDetails: collectScrollDetails(jsSources),
   };
 }

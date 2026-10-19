@@ -422,6 +422,42 @@ function mergeFontAssets(styleFontAssets, preloads) {
   return [...map.values()].slice(0, 100);
 }
 
+/**
+ * Group typographic rules into reusable specimens: one row per distinct
+ * family/size/weight/line-height/spacing signature, with representative
+ * selectors — the shape an agent needs to rebuild the type system.
+ */
+function buildTypeSpecimens(rules, limit = 16) {
+  const groups = new Map();
+  for (const rule of rules || []) {
+    if (!rule.size && !rule.family) continue;
+    const signature = [rule.family, rule.size, rule.weight, rule.lineHeight, rule.letterSpacing, rule.transform]
+      .map((value) => String(value || '').toLowerCase())
+      .join('|');
+    let group = groups.get(signature);
+    if (!group) {
+      group = {
+        family: rule.family || '',
+        size: rule.size || '',
+        weight: rule.weight || '',
+        lineHeight: rule.lineHeight || '',
+        letterSpacing: rule.letterSpacing || '',
+        transform: rule.transform || '',
+        count: 0,
+        selectors: [],
+      };
+      groups.set(signature, group);
+    }
+    group.count += 1;
+    if (group.selectors.length < 3 && !group.selectors.includes(rule.selector)) {
+      group.selectors.push(collapse(rule.selector, 90));
+    }
+  }
+  return [...groups.values()]
+    .sort((a, b) => b.count - a.count || String(a.size).localeCompare(String(b.size)))
+    .slice(0, limit);
+}
+
 function buildScrollSignals(styles, js, libraries, motionMarkup) {
   const signals = [];
   const scroll = styles.scroll;
@@ -843,6 +879,7 @@ export function analyzeSources({
       signals: scroll.signals,
       total: scroll.total,
       libraries: scroll.libraries,
+      jsDetails: js.scrollDetails,
     },
     libraries: librarySources,
     signals: js.signals,
@@ -866,6 +903,10 @@ export function analyzeSources({
     customProperties: styles.design.customProperties,
     breakpoints: styles.design.breakpoints,
     fontSizes: styles.design.fontSizes,
+    typography: {
+      ...styles.design.typography,
+      specimens: buildTypeSpecimens(styles.design.typography.rules),
+    },
     registeredProperties: styles.design.registeredProperties,
     inlineStyleCount: styles.design.inlineStyleCount,
   };
