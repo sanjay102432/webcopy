@@ -52,6 +52,10 @@ async function bootPage() {
   window.EventSource = FakeEventSource;
   window.scrollTo = () => {};
   window.Element.prototype.scrollIntoView = () => {};
+  Object.defineProperty(window.navigator, 'clipboard', {
+    value: { writeText: async () => {} },
+    configurable: true,
+  });
 
   window.eval(script);
   return { dom, window };
@@ -101,13 +105,28 @@ test('the landing page wires up and renders a demo report', async () => {
   assert.ok(rendered.includes('aurelia-studio.example'), 'host appears in the report hero');
   assert.ok(rendered.includes('Motion ledger'), 'motion section rendered');
   assert.ok(rendered.includes('Design system'), 'design section rendered');
+  assert.ok(rendered.includes('Agent prompt'), 'prompt section rendered');
   assert.ok(rendered.includes('Asset inventory'), 'asset section rendered');
   assert.ok(rendered.includes('Structure &amp; identity'), 'structure section rendered');
   assert.ok(rendered.includes('Source inventory'), 'source section rendered');
-  assert.ok(rendered.includes('@keyframes') === false, 'raw CSS should not leak as markup');
+  assert.ok(!rendered.includes('<style'), 'no raw style blocks injected');
+  assert.ok(!rendered.includes('<script'), 'no raw script blocks injected');
   assert.ok(document.querySelectorAll('#assetList .asset').length > 0, 'asset explorer populated');
   assert.ok(document.querySelectorAll('.part__fill').length > 0, 'score parts rendered');
   assert.ok(document.querySelectorAll('[data-more]').length > 0, 'long tables offer pagination');
+  assert.ok(document.querySelector('a[href="#report-prompt"]'), 'nav links to the prompt');
+
+  /* The prompt text is present, escaped and copyable. */
+  const promptText = document.querySelector('#promptText');
+  assert.ok(promptText, 'prompt block exists');
+  assert.ok(promptText.textContent.length > 1500, 'prompt text is complete');
+  assert.ok(promptText.textContent.includes('Front-end brief'), 'prompt has its own header');
+  const promptSection = document.querySelector('#report-prompt');
+  assert.ok(promptSection, 'prompt section has the right id');
+  const copyButton = document.querySelector('[data-action="copy-prompt"]');
+  copyButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(document.querySelector('#toast').textContent.includes('Agent prompt copied'), 'copy action reports success');
 
   /* Show-more pagination should append rows safely. */
   const more = document.querySelector('[data-more]');

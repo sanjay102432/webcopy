@@ -84,6 +84,30 @@ test('the demo specimen produces a dense, consistent report', () => {
   assert.ok(report.structure.headings.length > 0);
 });
 
+test('every report embeds one copy-ready agent prompt', () => {
+  const report = buildDemoReport();
+  assert.equal(typeof report.prompt, 'string');
+  assert.ok(report.prompt.length > 1500, 'prompt should be substantial');
+  assert.ok(report.prompt.includes('aurelia-studio.example'), 'prompt names the target');
+  assert.ok(report.prompt.includes('@keyframes to declare'), 'prompt lists keyframes');
+  assert.ok(report.prompt.includes('drift'), 'prompt names measured keyframes');
+  assert.ok(report.prompt.includes('Transition'), 'prompt lists transitions');
+  assert.ok(report.prompt.includes('GSAP'), 'prompt names libraries');
+  assert.ok(report.prompt.includes('prefers-reduced-motion'), 'prompt covers accessibility');
+  assert.ok(report.prompt.includes('#ff4d1d') || report.prompt.includes('#14140f'), 'prompt carries the palette');
+});
+
+test('a still page still receives a usable prompt', () => {
+  const report = analyzeSources({
+    requestedUrl: 'https://still.example/',
+    finalUrl: 'https://still.example/',
+    html: '<!doctype html><html><head><title>Still</title></head><body><p>Quiet page.</p></body></html>',
+  });
+  assert.equal(typeof report.prompt, 'string');
+  assert.ok(report.prompt.includes('None found in the delivered CSS'));
+  assert.ok(report.prompt.includes('Add it anyway'), 'missing reduced-motion coverage is called out');
+});
+
 test('analyzeSite rejects non-html content', async () => {
   await assert.rejects(
     () => analyzeSite('ftp://example.com'),

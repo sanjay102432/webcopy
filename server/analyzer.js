@@ -4,6 +4,7 @@ import { analyzeDocument } from './html-analysis.js';
 import { analyzeStyles } from './css-analysis.js';
 import { analyzeScripts } from './js-analysis.js';
 import { detectTech } from './tech.js';
+import { buildAgentPrompt } from './prompt.js';
 import {
   basenameFromUrl,
   collapse,
@@ -957,6 +958,8 @@ export function analyzeSources({
     warnings: uniqueBy(warnings.map((warning) => collapse(warning, 300)), (item) => item).slice(0, 30),
     notes,
   };
+
+  report.prompt = buildAgentPrompt(report);
 
   emit('finish', 'Assembling the report', 97);
   return report;

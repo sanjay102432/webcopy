@@ -196,6 +196,21 @@ function downloadJson() {
   toast('Report downloaded as JSON.');
 }
 
+function downloadPrompt() {
+  if (!state.report?.prompt) return;
+  const host = (state.report.host || 'site').replace(/[^\w.-]/g, '');
+  const blob = new Blob([state.report.prompt], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `webcopy-${host}-agent-prompt.md`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast('Agent prompt downloaded.');
+}
+
 function summaryText(report) {
   const s = report.summary || {};
   const libs = (report.motion?.libraries || []).map((library) => library.name);
@@ -923,6 +938,35 @@ function designSection(report) {
   );
 }
 
+/* ------------------------------- prompt --------------------------------- */
+
+function promptSection(report) {
+  const prompt = report.prompt;
+  if (!prompt) return '';
+  const body = `<div class="prompt-shell">
+      <div class="prompt-shell__bar">
+        <span class="live-tag"><i aria-hidden="true"></i>Agent brief</span>
+        <span class="prompt-shell__meta">${fmtInt(prompt.length)} characters · plain text · paste into any AI assistant or teammate</span>
+        <span class="report-actions">
+          <button class="btn btn--sm btn--acid" type="button" data-action="copy-prompt">Copy prompt</button>
+          <button class="btn btn--sm btn--ghost-light" type="button" data-action="download-prompt">Download .md</button>
+        </span>
+      </div>
+      <pre class="prompt-pre" id="promptText">${esc(prompt)}</pre>
+      <div class="prompt-foot">
+        <span>Generated from the motion + design ledgers of this readout</span>
+        <span>${esc(report.host || '')} · ${esc(fmtDate(report.fetchedAt))} · webcopy v1.0</span>
+      </div>
+    </div>`;
+  return section(
+    'report-prompt',
+    '✦',
+    'Agent prompt',
+    'One copy-ready brief describing the design system, animations, transitions, libraries and scroll behaviour measured above — written so an AI agent or a teammate can rebuild them without ever seeing this site.',
+    body,
+  );
+}
+
 /* ------------------------------- assets --------------------------------- */
 
 function buildAssetEntries(report) {
@@ -1413,8 +1457,9 @@ function renderReport(report) {
       <span class="report-hero__crumb">${esc(report.host || hostOf(report.finalUrl))} · ${report.demo ? 'fictional specimen' : 'static source read'} · v1.0</span>
       <span class="report-actions">
         <button class="btn btn--sm" type="button" data-action="copy-summary">Copy summary</button>
+        <button class="btn btn--sm btn--acid" type="button" data-action="copy-prompt">Copy agent prompt</button>
         <button class="btn btn--sm btn--ink" type="button" data-action="download-json">Download JSON</button>
-        <button class="btn btn--sm btn--acid" type="button" data-action="new-scan">New scan ↺</button>
+        <button class="btn btn--sm" type="button" data-action="new-scan">New scan ↺</button>
       </span>
     </div>
     <div class="report-hero__grid">
@@ -1466,6 +1511,7 @@ function renderReport(report) {
     <div class="report-nav__inner">
       <a class="report-nav__link" href="#report-motion">A · Motion</a>
       <a class="report-nav__link" href="#report-design">B · Design</a>
+      <a class="report-nav__link" href="#report-prompt">✦ · Prompt</a>
       <a class="report-nav__link" href="#report-assets">C · Assets</a>
       <a class="report-nav__link" href="#report-structure">D · Structure</a>
       <a class="report-nav__link" href="#report-code">E · Source</a>
@@ -1480,6 +1526,7 @@ function renderReport(report) {
       <p>Paste a new address and webcopy will fetch it, parse the stylesheets and scripts again, and bind a fresh report. Nothing from this read is stored.</p>
       <div class="report-actions">
         <button class="btn btn--acid" type="button" data-action="new-scan">New scan <span aria-hidden="true">↑</span></button>
+        <button class="btn btn--ghost-light" type="button" data-action="copy-prompt">Copy agent prompt</button>
         <button class="btn btn--ghost-light" type="button" data-action="copy-summary">Copy summary</button>
       </div>
     </div>
@@ -1492,6 +1539,7 @@ function renderReport(report) {
   refs.reportView.innerHTML = `${hero}${nav}
     ${motionSection(report)}
     ${designSection(report)}
+    ${promptSection(report)}
     ${assetsSection(report)}
     ${structureSection(report)}
     ${sourceSection(report)}
@@ -1719,6 +1767,12 @@ function wireEvents() {
       else if (name === 'copy-summary') copyText(summaryText(state.report), 'Summary copied.');
       else if (name === 'download-json') downloadJson();
       else if (name === 'copy-json') copyText(JSON.stringify(state.report, null, 2), 'Full JSON copied.');
+      else if (name === 'copy-prompt') {
+        if (state.report.prompt) copyText(state.report.prompt, 'Agent prompt copied — paste it anywhere.');
+        else toast('This report has no agent prompt.');
+      } else if (name === 'download-prompt') {
+        downloadPrompt();
+      }
     }
   });
 

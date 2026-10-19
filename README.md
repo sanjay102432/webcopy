@@ -30,6 +30,13 @@ Each report ends with a composite **motion score** (0–100) across six measured
 parts. It describes motion *density in the source*, not visual quality,
 performance or accessibility.
 
+Every report also carries one **agent prompt** (`report.prompt`): a single
+copy-ready brief that restates the measured design system and motion behaviour —
+keyframes, animation assignments, transitions, easings, tokens, libraries and
+reduced-motion rules — written so an AI agent or a teammate can rebuild the site
+without ever seeing it. The UI shows it right after the design ledger with copy
+and download-as-Markdown actions.
+
 ## How it works
 
 - Fetches the page with [undici](https://github.com/nodejs/undici) using manual
