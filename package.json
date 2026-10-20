@@ -1,7 +1,7 @@
 {
   "name": "webcopy",
-  "version": "1.0.0",
-  "description": "Motion forensics for the web. Paste a URL and read every keyframe, transition, scroll effect, library, design token and asset a page ships.",
+  "version": "1.1.0",
+  "description": "Motion forensics for the web. Paste a URL and read every keyframe, transition, scroll effect, library, design token and asset a page ships — then follow the site's own links, read the linked pages the same way and get a site structure blueprint.",
   "type": "module",
   "main": "server/index.js",
   "scripts": {

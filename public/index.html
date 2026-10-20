@@ -84,6 +84,26 @@
               </button>
             </div>
             <p class="form-error" id="formError" role="alert" hidden></p>
+            <div class="scan-crawl" aria-label="Linked-page crawl settings">
+              <div class="crawl-select">
+                <label for="crawlPages">Linked pages</label>
+                <select id="crawlPages" name="pages">
+                  <option value="0">Off</option>
+                  <option value="3" selected>3</option>
+                  <option value="6">6</option>
+                  <option value="10">10</option>
+                </select>
+              </div>
+              <div class="crawl-select">
+                <label for="crawlDepth">Depth</label>
+                <select id="crawlDepth" name="depth">
+                  <option value="1" selected>1 level</option>
+                  <option value="2">2 levels</option>
+                  <option value="3">3 levels</option>
+                </select>
+              </div>
+              <p class="scan-crawl__hint">After the homepage, the crawl follows same-site links — About, Contact, Work — and reads each with the same animation and design analysis.</p>
+            </div>
             <div class="samples" aria-label="Example websites">
               <span class="samples__label">Try →</span>
               <button type="button" data-sample="gsap.com">gsap.com</button>
@@ -179,13 +199,13 @@
               <h3>Capture</h3>
               <p>Read the room.</p>
             </div>
-            <p class="method-step__body">
+      <p class="method-step__body">
               We fetch the public page and its linked stylesheets and scripts
-              within strict size and network limits. No browser rendering, no
-              screenshots, no guessing from a video.
+              within strict size and network limits. With the crawl on, the
+              same read travels through the site's own links.
             </p>
             <div class="method-step__meta">
-              <span>HTML</span><span>CSS</span><span>JS</span>
+              <span>HTML</span><span>CSS</span><span>JS</span><span>Crawl</span>
             </div>
           </article>
 
@@ -357,7 +377,7 @@
         <p class="footer-label">Machine</p>
         <a href="/api/health">Health</a>
         <a href="/api/demo">Demo JSON</a>
-        <span>v1.0 / local first</span>
+        <span>v1.1 / local first</span>
       </div>
       <div class="site-footer__links">
         <p class="footer-label">Fine print</p>
@@ -401,6 +421,7 @@
             <li data-step="styles"><span class="scan-step__dot"></span><span>Read styles &amp; tokens</span><span class="scan-step__state">pending</span></li>
             <li data-step="scripts"><span class="scan-step__dot"></span><span>Trace scripts &amp; libraries</span><span class="scan-step__state">pending</span></li>
             <li data-step="motion"><span class="scan-step__dot"></span><span>Count motion signatures</span><span class="scan-step__state">pending</span></li>
+            <li data-step="crawl"><span class="scan-step__dot"></span><span>Follow linked pages</span><span class="scan-step__state">pending</span></li>
             <li data-step="finish"><span class="scan-step__dot"></span><span>Bind the report</span><span class="scan-step__state">pending</span></li>
           </ol>
           <div class="scan-readout" aria-live="polite" id="scanStatus">

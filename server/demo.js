@@ -1,4 +1,6 @@
 import { analyzeSources } from './analyzer.js';
+import { condensePageReport, summarizeCrawl } from './crawl.js';
+import { buildAgentPrompt } from './prompt.js';
 
 const DEMO_URL = 'https://aurelia-studio.example/';
 
@@ -700,7 +702,7 @@ export function buildDemoReport() {
   const mainUrl = 'https://aurelia-studio.example/assets/main.js';
   const interactionsUrl = 'https://aurelia-studio.example/assets/interactions.js';
 
-  return analyzeSources({
+  const report = analyzeSources({
     requestedUrl: DEMO_URL,
     finalUrl: DEMO_URL,
     html: DEMO_HTML,
@@ -726,5 +728,127 @@ export function buildDemoReport() {
       scriptStats: { external: 2, inline: 0, fetched: 2, failed: 0, skipped: 0 },
     },
     demo: true,
+  });
+
+  report.crawl = buildDemoCrawl(report);
+  report.prompt = buildAgentPrompt(report);
+  return report;
+}
+
+/* ---------------------------------------------------------------- crawl */
+/* The specimen pretends its internal links were followed, so the demo
+   exercises the same linked-page tables the live scan produces. */
+
+const DEMO_ABOUT_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Approach — Aurelia Studio</title>
+  <meta name="description" content="How Aurelia works: long looks, short releases.">
+  <link rel="stylesheet" href="/assets/site.css">
+  <style>
+    .approach { padding: 96px 0; }
+    .approach h2 { font-size: 44px; animation: settle .9s var(--ease) both; }
+    .memo { transition: opacity .4s ease, transform .4s var(--ease); }
+    @keyframes settle { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="approach" id="approach">
+      <h2 data-reveal>Slow work, shipped weekly.</h2>
+      <p class="memo">Three principles, one cadence, zero decks.</p>
+    </section>
+  </main>
+  <script>window.addEventListener('scroll', function(){}, { passive: true });</script>
+</body>
+</html>`;
+
+const DEMO_JOURNAL_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Journal — Aurelia Studio</title>
+  <meta name="description" content="Field notes from the studio.">
+  <style>
+    .journal { padding: 72px 0; }
+    .row { transition: background .3s ease; }
+    .row:hover { background: rgba(20,20,15,.04); }
+    .stamp { animation: stamp-in .5s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes stamp-in { from { opacity: 0; transform: rotate(-6deg) scale(1.2); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="journal">
+      <h1>Journal</h1>
+      <article class="row">Field notes 04 — easing as tone of voice</article>
+      <article class="row">Field notes 03 — grain beats gloss</article>
+    </section>
+  </main>
+</body>
+</html>`;
+
+function demoSubReport(suffix, html) {
+  const inlineUrl = `https://aurelia-studio.example${suffix}`;
+  return analyzeSources({
+    requestedUrl: inlineUrl,
+    finalUrl: inlineUrl,
+    html,
+    cssSources: [],
+    jsSources: [],
+    warnings: [],
+    responseHeaders: {},
+    pageInfo: {
+      bytes: Buffer.byteLength(html, 'utf8'),
+      downloadedBytes: Buffer.byteLength(html, 'utf8'),
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      elapsedMs: 0,
+      truncated: false,
+    },
+    demo: false,
+    onProgress: () => {},
+  });
+}
+
+function buildDemoCrawl(entryReport) {
+  const about = demoSubReport('/about', DEMO_ABOUT_HTML);
+  const journal = demoSubReport('/journal', DEMO_JOURNAL_HTML);
+
+  const crawl = {
+    pages: [
+      {
+        ...condensePageReport(about, {
+          depth: 1,
+          via: 'aurelia-studio.example/',
+          viaText: 'Our approach',
+          key: 'aurelia-studio.example/about',
+        }),
+        url: 'https://aurelia-studio.example/about',
+        requestedUrl: 'https://aurelia-studio.example/about',
+      },
+      {
+        ...condensePageReport(journal, {
+          depth: 2,
+          via: 'aurelia-studio.example/about',
+          viaText: 'Field notes',
+          key: 'aurelia-studio.example/journal',
+        }),
+        url: 'https://aurelia-studio.example/journal',
+        requestedUrl: 'https://aurelia-studio.example/journal',
+      },
+    ],
+    failed: [{ url: 'https://aurelia-studio.example/archive', depth: 2, reason: 'HTTP 404: not found', label: 'archive' }],
+    discovered: 7,
+    skipped: 3,
+    stoppedByBudget: false,
+  };
+
+  return summarizeCrawl({
+    entryReport,
+    crawl,
+    seedUrl: DEMO_URL,
+    options: { pages: 6, depth: 2 },
   });
 }

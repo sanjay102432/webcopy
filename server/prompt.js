@@ -1,34 +1,36 @@
 import { collapse } from './analyzer-utils.js';
 
 const CAP = {
-  colors: 16,
-  fonts: 18,
-  specimens: 12,
-  typeSizes: 12,
-  typeBuckets: 8,
-  fontFiles: 6,
-  images: 36,
-  backgroundImages: 14,
-  videos: 8,
-  embeds: 6,
-  radii: 8,
-  shadows: 6,
-  gradients: 5,
-  customProperties: 24,
-  breakpoints: 20,
-  keyframes: 36,
-  animationUses: 60,
-  transitionSelectors: 55,
-  easings: 10,
+  colors: 32,
+  fonts: 24,
+  specimens: 20,
+  typeSizes: 16,
+  typeBuckets: 10,
+  fontFiles: 10,
+  images: 72,
+  backgroundImages: 24,
+  videos: 12,
+  embeds: 10,
+  radii: 10,
+  shadows: 8,
+  gradients: 8,
+  customProperties: 32,
+  breakpoints: 24,
+  keyframes: 48,
+  animationUses: 80,
+  transitionSelectors: 72,
+  easings: 12,
   libraries: 24,
-  jsSignals: 12,
-  scrollSignals: 10,
-  scrollJsDetails: 12,
-  scrollTimelines: 8,
-  sticky: 8,
-  revealAttributes: 10,
-  sections: 12,
-  headings: 14,
+  jsSignals: 16,
+  scrollSignals: 12,
+  scrollJsDetails: 16,
+  scrollTimelines: 12,
+  sticky: 12,
+  revealAttributes: 14,
+  sections: 16,
+  headings: 20,
+  links: 40,
+  externalDomains: 16,
 };
 
 function clean(value, max = 200) {
@@ -603,6 +605,38 @@ export function buildAgentPrompt(report) {
     lines.push(`- ${report.warnings.length} reading warning${report.warnings.length === 1 ? '' : 's'} were recorded for this scan (rate limits, blocked files or truncation) — treat any count as a lower bound.`);
   }
   lines.push('');
+
+  /* ---------------------------------------------------------- linked pages */
+  const crawl = report.crawl;
+  if (crawl?.enabled) {
+    const readPages = crawl.pages || [];
+    lines.push(`## 10 · Other pages this site ships`);
+    lines.push(
+      `- The scan also followed this site's internal links and read ${readPages.length ? `${readPages.length} more page${readPages.length === 1 ? '' : 's'}` : 'no additional pages successfully'} at depth ${crawl.options?.depth ?? 1}. One shared build should treat them consistently.`,
+    );
+    for (const page of readPages.slice(0, 10)) {
+      const bits = [
+        code(page.url, 90),
+        page.title ? quoted(page.title, 70) : '',
+        `${clean(String(page.summary?.words ?? 0), 10)} words`,
+        `motion ${clean(String(page.summary?.motionScore ?? 0), 4)}/100 (${clean(String(page.summary?.motionLabel ?? ''), 14)})`,
+        `${clean(String(page.motion?.keyframesTotal ?? page.summary?.keyframes ?? 0), 6)} keyframes`,
+        `${clean(String(page.summary?.transitions ?? 0), 6)} transitions`,
+        page.role ? clean(page.role, 20) : '',
+      ].filter(Boolean);
+      lines.push(`  - ${bits.join(' · ')}`);
+      for (const keyframe of (page.motion?.keyframes || []).slice(0, 4)) {
+        lines.push(`    - keyframe ${code(keyframe.name, 60)}`);
+      }
+      for (const font of (page.design?.fonts || []).slice(0, 3)) {
+        lines.push(`    - font ${code(font.family, 50)}`);
+      }
+    }
+    if (report.crawl.blueprint) {
+      lines.push('- A plain-language site blueprint (pages, shared tokens, motion deltas) is in the JSON report under `crawl.blueprint`.');
+    }
+    lines.push('');
+  }
 
   lines.push(`---`);
   lines.push(

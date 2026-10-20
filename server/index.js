@@ -94,7 +94,7 @@ function publicError(error) {
 }
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, name: 'webcopy', version: '1.0.0' });
+  res.json({ ok: true, name: 'webcopy', version: '1.1.0' });
 });
 
 app.get('/api/demo', (req, res) => {
@@ -121,9 +121,13 @@ async function handleJsonScan(req, res, next) {
 
   const demo = req.query.demo === '1' || req.body?.demo === true;
   const url = req.body?.url || req.query.url || '';
+  const crawl = {
+    pages: req.body?.pages ?? req.query.pages,
+    depth: req.body?.depth ?? req.query.depth,
+  };
 
   try {
-    const report = demo ? buildDemoReport() : await analyzeSite(url);
+    const report = demo ? buildDemoReport() : await analyzeSite(url, { crawl });
     return res.json(report);
   } catch (error) {
     return next(error);
@@ -213,6 +217,7 @@ app.get('/api/analyze/stream', async (req, res) => {
     const report = await analyzeSite(url, {
       signal: controller.signal,
       onProgress: (progress) => send({ type: 'progress', ...progress }),
+      crawl: { pages: req.query.pages, depth: req.query.depth },
     });
     send({ type: 'result', report });
     return finish();

@@ -95,7 +95,7 @@ const TIME_RE = /^-?(?:\d+|\d*\.\d+)(?:ms|s)$/i;
 const NUMBER_RE = /^[+-]?(?:\d+|\d*\.\d+)$/;
 
 const COLOR_RE =
-  /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})(?![0-9a-f])|(?:rgba?|hsla?)\([^)]*\)/gi;
+  /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})(?![0-9a-f])|(?:rgba?|hsla?|oklch|oklab|lab|lch|color)\([^)]*\)/gi;
 const URL_RE = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
 
 const IMAGE_EXT = /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)(?:[?#]|$)/i;
@@ -385,6 +385,7 @@ function createState() {
     keyframeNames: new Set(),
     keyframeUsage: new Map(),
     keyframeSamples: new Map(),
+    keyframeDetails: new Map(),
     animationUses: [],
     animationUsesTotal: 0,
     animatedSelectors: new Set(),
@@ -393,6 +394,9 @@ function createState() {
     transitionedSelectors: new Set(),
     easings: new Map(),
     durations: [],
+    durationHistogram: new Map(),
+    propertiesAnimated: new Map(),
+    propertiesTransitioned: new Map(),
     reducedMotion: {
       mediaBlocks: 0,
       disablesMotion: 0,

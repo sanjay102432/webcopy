@@ -145,6 +145,23 @@ test('the landing page wires up and renders a demo report', async () => {
   search.value = '';
   search.dispatchEvent(new window.Event('input', { bubbles: true }));
   assert.ok(document.querySelectorAll('#assetList .asset').length > 0, 'clearing the filter restores rows');
+
+  /* The linked-pages section renders the site plan for the specimen. */
+  const crawlView = document.querySelector('#report-crawl');
+  assert.ok(crawlView, 'linked pages section has its own id');
+  assert.ok(crawlView.textContent.includes('Pages read'), 'crawl overview tiles exist');
+  assert.ok(crawlView.querySelector('.sitemap__node--seed'), 'site map marks the entry page');
+  const pageBlocks = crawlView.querySelectorAll('.page-block');
+  assert.equal(pageBlocks.length, 2, 'both specimen sub-pages render as page blocks');
+  assert.ok(document.querySelector('a[href="#page-aurelia-studio.example/about"]'), 'site map nodes link to their page block');
+  assert.ok(pageBlocks[0].querySelector('.data-table'), 'a page block carries animation tables');
+  assert.ok(crawlView.querySelector('.ledger-row'), 'shared token rows render');
+  const blueprint = document.querySelector('#blueprintText');
+  assert.ok(blueprint, 'blueprint block exists');
+  assert.ok(blueprint.textContent.includes('Site blueprint'), 'blueprint text is the closing brief');
+  assert.ok(document.querySelector('[data-action="copy-blueprint"]'), 'blueprint is copyable');
+  assert.ok(document.querySelector('a[href="#report-crawl"]'), 'nav links to the pages section');
+  assert.ok(rendered.includes('pages read'), 'hero tags the multi-page read');
 });
 
 test('a scan failure shows the fail panel with code', async () => {
@@ -176,4 +193,22 @@ test('an empty address is rejected client-side', async () => {
   assert.equal(error.hidden, false);
   assert.ok(error.textContent.length > 0);
   assert.equal(document.querySelector('#scanOverlay').hidden, true);
+});
+
+test('the crawl dial rides along on scan URLs and can be switched off', async () => {
+  const { window } = await bootPage();
+  const { document } = window;
+
+  document.querySelector('#urlInput').value = 'slowmotion.example';
+  const pages = document.querySelector('#crawlPages');
+  const depth = document.querySelector('#crawlDepth');
+  pages.value = '10';
+  depth.value = '2';
+  document.querySelector('#scanForm').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+  assert.ok(FakeEventSource.last.url.includes('pages=10&depth=2'), 'the crawl settings travel with the scan');
+
+  pages.value = '0';
+  FakeEventSource.last.emit({ type: 'fail', error: { message: 'We could not find that domain.', code: 'DNS_FAILED' } });
+  document.querySelector('[data-retry-scan]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  assert.ok(FakeEventSource.last.url.includes('pages=0'), 'switching the crawl off sends an explicit zero');
 });

@@ -5,6 +5,7 @@ import { analyzeStyles } from './css-analysis.js';
 import { analyzeScripts } from './js-analysis.js';
 import { detectTech } from './tech.js';
 import { buildAgentPrompt } from './prompt.js';
+import { readCrawlOptions, crawlLinkedPages, summarizeCrawl } from './crawl.js';
 import {
   basenameFromUrl,
   collapse,
@@ -16,6 +17,34 @@ import {
 
 const MAX_EXTERNAL_STYLES = 14;
 const MAX_EXTERNAL_SCRIPTS = 14;
+/* Crawl limits: linked pages are read tighter, and shared assets are cached. */
+const CRAWL_MAX_STYLES = 6;
+const CRAWL_MAX_SCRIPTS = 6;
+
+const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+
+/**
+ * Per-scan fetch cache. Sites load the same stylesheets and scripts on every
+ * page; crawled pages re-read them from this in-memory cache instead of the
+ * network. Keyed by URL; values are in-flight promises so concurrent crawls
+ * dedupe too.
+ */
+function createResourceCache() {
+  return { styles: new Map(), scripts: new Map() };
+}
+
+async function cachedFetch(cache, bucket, url, run) {
+  if (!cache || !(bucket in cache)) return run();
+  const map = cache[bucket];
+  const key = url.toString();
+  if (map.has(key)) return map.get(key);
+  const promise = run().catch((error) => {
+    map.delete(key);
+    throw error;
+  });
+  map.set(key, promise);
+  return promise;
+}
 
 const SCORE_LABELS = [
   [15, 'Still'],
@@ -100,87 +129,98 @@ function extractImports(source) {
   return results;
 }
 
-async function fetchStyles(doc, baseUrl, warnings, signal) {
-  const links = doc.styleLinks.slice(0, MAX_EXTERNAL_STYLES);
+async function fetchStyles(doc, baseUrl, warnings, signal, options = {}) {
+  const { cache = null, maxStyles = MAX_EXTERNAL_STYLES, maxImports = 6 } = options;
+  const links = doc.styleLinks.slice(0, maxStyles);
   const skippedLinkCount = Math.max(0, doc.styleLinks.length - links.length);
   if (skippedLinkCount) {
     pushWarning(
       warnings,
-      `${skippedLinkCount} extra stylesheet${skippedLinkCount === 1 ? '' : 's'} were skipped after the first ${MAX_EXTERNAL_STYLES}.`,
+      `${skippedLinkCount} extra stylesheet${skippedLinkCount === 1 ? '' : 's'} were skipped after the first ${maxStyles}.`,
     );
   }
 
   const external = await mapLimit(links, 4, async (link, index) => {
     const label = link.title || basenameFromUrl(link.url, `Stylesheet ${index + 1}`);
-    try {
-      const response = await safeFetch(link.url, {
-        maxBytes: 1_200_000,
-        timeoutMs: 12_000,
-        accept: 'text/css,*/*;q=0.1',
-        signal,
-      });
+    const fetchOne = async () => {
+      try {
+        const response = await safeFetch(link.url, {
+          maxBytes: 1_200_000,
+          timeoutMs: 12_000,
+          accept: 'text/css,*/*;q=0.1',
+          signal,
+        });
 
-      if (!response.ok) {
-        pushWarning(warnings, `A stylesheet answered with HTTP ${response.status}: ${label}.`);
+        if (!response.ok) {
+          return {
+            content: '',
+            bytes: 0,
+            status: `HTTP ${response.status}`,
+            baseUrl: link.url,
+            error: `HTTP ${response.status}`,
+            warning: `A stylesheet answered with HTTP ${response.status}: ${label}.`,
+          };
+        }
+        if (isHtmlErrorPage(response)) {
+          return {
+            content: '',
+            bytes: 0,
+            status: 'HTML response',
+            baseUrl: link.url,
+            error: 'HTML response',
+            warning: `A stylesheet returned an HTML error page instead of CSS: ${label}.`,
+          };
+        }
+
         return {
-          url: link.url,
-          label,
-          content: '',
-          bytes: 0,
-          status: `HTTP ${response.status}`,
-          media: link.media,
+          content: response.text,
+          bytes: response.bytes,
+          status: response.status,
           baseUrl: response.finalUrl || link.url,
-          error: `HTTP ${response.status}`,
+          truncated: response.truncated,
+          truncatedWarning: response.truncated
+            ? `A stylesheet was cut at the 1.2 MB read limit: ${label}.`
+            : '',
         };
-      }
-      if (isHtmlErrorPage(response)) {
-        pushWarning(warnings, `A stylesheet returned an HTML error page instead of CSS: ${label}.`);
+      } catch (error) {
+        const message = error instanceof FetchProblem ? error.message : 'Could not read stylesheet.';
         return {
-          url: link.url,
-          label,
           content: '',
           bytes: 0,
-          status: 'HTML response',
-          media: link.media,
+          status: 'failed',
           baseUrl: link.url,
-          error: 'HTML response',
+          error: message,
+          warning: `${message} (${label})`,
         };
       }
-      if (response.truncated) {
-        pushWarning(warnings, `A stylesheet was cut at the 1.2 MB read limit: ${label}.`);
-      }
+    };
 
-      return {
-        url: link.url,
-        label,
-        content: response.text,
-        bytes: response.bytes,
-        status: response.status,
-        media: link.media,
-        baseUrl: response.finalUrl || link.url,
-        truncated: response.truncated,
-      };
-    } catch (error) {
-      const message = error instanceof FetchProblem ? error.message : 'Could not read stylesheet.';
-      pushWarning(warnings, `${message} (${label})`);
-      return {
-        url: link.url,
-        label,
-        content: '',
-        bytes: 0,
-        status: 'failed',
-        media: link.media,
-        baseUrl: link.url,
-        error: message,
-      };
-    }
+    const payload = await cachedFetch(cache, 'styles', link.url, fetchOne);
+
+    if (payload.warning) pushWarning(warnings, payload.warning);
+    if (payload.truncatedWarning) pushWarning(warnings, payload.truncatedWarning);
+
+    return {
+      url: link.url,
+      label,
+      content: payload.content || '',
+      bytes: payload.bytes || 0,
+      status: payload.status,
+      media: link.media,
+      baseUrl: payload.baseUrl || link.url,
+      error: payload.error,
+      truncated: Boolean(payload.truncated),
+    };
   });
 
   const importUrls = [];
   const seen = new Set(external.map((source) => source.url));
   for (const source of external) {
-    for (const url of extractImports(source)) {
-      if (seen.has(url) || importUrls.length >= 6) continue;
+    if (!source.content) continue;
+    if (!source.content.includes('@import')) continue;
+    const urlSet = extractImports({ content: source.content, url: source.url, baseUrl: source.baseUrl });
+    for (const url of urlSet) {
+      if (seen.has(url) || importUrls.length >= maxImports) continue;
       seen.add(url);
       importUrls.push({ url, parent: source.label });
     }
@@ -188,53 +228,58 @@ async function fetchStyles(doc, baseUrl, warnings, signal) {
 
   const imported = await mapLimit(importUrls, 3, async ({ url, parent }) => {
     const label = basenameFromUrl(url, 'Imported stylesheet');
-    try {
-      const response = await safeFetch(url, {
-        maxBytes: 600_000,
-        timeoutMs: 10_000,
-        accept: 'text/css,*/*;q=0.1',
-        signal,
-      });
-      if (!response.ok || isHtmlErrorPage(response)) {
-        pushWarning(warnings, `An imported stylesheet could not be read: ${label}.`);
+    const fetchImport = async () => {
+      try {
+        const response = await safeFetch(url, {
+          maxBytes: 600_000,
+          timeoutMs: 10_000,
+          accept: 'text/css,*/*;q=0.1',
+          signal,
+        });
+        if (!response.ok || isHtmlErrorPage(response)) {
+          return {
+            content: '',
+            bytes: 0,
+            status: response.ok ? 'HTML response' : `HTTP ${response.status}`,
+            baseUrl: url,
+            error: `HTTP ${response.status}`,
+            warning: `An imported stylesheet could not be read: ${label}.`,
+          };
+        }
         return {
-          url,
-          label,
+          content: response.text,
+          bytes: response.bytes,
+          status: response.status,
+          baseUrl: response.finalUrl || url,
+          truncated: response.truncated,
+        };
+      } catch (error) {
+        const message = error instanceof FetchProblem ? error.message : 'Could not read import.';
+        return {
           content: '',
           bytes: 0,
-          status: response.ok ? 'HTML response' : `HTTP ${response.status}`,
+          status: 'failed',
           baseUrl: url,
-          imported: true,
-          parent,
-          error: `HTTP ${response.status}`,
+          error: message,
+          warning: `${message} (${label})`,
         };
       }
-      return {
-        url,
-        label,
-        content: response.text,
-        bytes: response.bytes,
-        status: response.status,
-        baseUrl: response.finalUrl || url,
-        truncated: response.truncated,
-        imported: true,
-        parent,
-      };
-    } catch (error) {
-      const message = error instanceof FetchProblem ? error.message : 'Could not read import.';
-      pushWarning(warnings, `${message} (${label})`);
-      return {
-        url,
-        label,
-        content: '',
-        bytes: 0,
-        status: 'failed',
-        baseUrl: url,
-        imported: true,
-        parent,
-        error: message,
-      };
-    }
+    };
+
+    const payload = await cachedFetch(cache, 'styles', url, fetchImport);
+    if (payload.warning) pushWarning(warnings, payload.warning);
+
+    return {
+      url,
+      label,
+      content: payload.content || '',
+      bytes: payload.bytes || 0,
+      status: payload.status,
+      baseUrl: payload.baseUrl || url,
+      truncated: Boolean(payload.truncated),
+      imported: true,
+      parent,
+    };
   });
 
   const inline = doc.styleBlocks.map((block) => ({
@@ -261,92 +306,91 @@ async function fetchStyles(doc, baseUrl, warnings, signal) {
       imported: imported.length,
       bytes: sources.reduce((sum, source) => sum + (source.bytes || 0), 0),
       externalBytes: externalSources.reduce((sum, source) => sum + (source.bytes || 0), 0),
+      cached: cache ? [...cache.styles.keys()].length : 0,
     },
   };
 }
 
-async function fetchScripts(doc, warnings, signal) {
-  const tags = doc.scripts.external.slice(0, MAX_EXTERNAL_SCRIPTS);
+async function fetchScripts(doc, warnings, signal, options = {}) {
+  const { cache = null, maxScripts = MAX_EXTERNAL_SCRIPTS } = options;
+  const tags = doc.scripts.external.slice(0, maxScripts);
   const skippedTagCount = Math.max(0, doc.scripts.external.length - tags.length);
   if (skippedTagCount) {
     pushWarning(
       warnings,
-      `${skippedTagCount} extra script${skippedTagCount === 1 ? '' : 's'} were skipped after the first ${MAX_EXTERNAL_SCRIPTS}.`,
+      `${skippedTagCount} extra script${skippedTagCount === 1 ? '' : 's'} were skipped after the first ${maxScripts}.`,
     );
   }
 
   const external = await mapLimit(tags, 4, async (tag, index) => {
     const label = basenameFromUrl(tag.url, `Script ${index + 1}`);
-    try {
-      const response = await safeFetch(tag.url, {
-        maxBytes: 950_000,
-        timeoutMs: 12_000,
-        accept: 'text/javascript,application/javascript,*/*;q=0.1',
-        signal,
-      });
+    const fetchOne = async () => {
+      try {
+        const response = await safeFetch(tag.url, {
+          maxBytes: 950_000,
+          timeoutMs: 12_000,
+          accept: 'text/javascript,application/javascript,*/*;q=0.1',
+          signal,
+        });
 
-      if (!response.ok) {
-        pushWarning(warnings, `A script answered with HTTP ${response.status}: ${label}.`);
+        if (!response.ok) {
+          return {
+            content: '',
+            bytes: 0,
+            status: `HTTP ${response.status}`,
+            error: `HTTP ${response.status}`,
+            warning: `A script answered with HTTP ${response.status}: ${label}.`,
+          };
+        }
+        if (isHtmlErrorPage(response)) {
+          return {
+            content: '',
+            bytes: 0,
+            status: 'HTML response',
+            error: 'HTML response',
+            warning: `A script returned an HTML page instead of JavaScript: ${label}.`,
+          };
+        }
+
         return {
-          url: tag.url,
-          label,
+          content: response.text,
+          bytes: response.bytes,
+          status: response.status,
+          truncated: response.truncated,
+          truncatedWarning: response.truncated
+            ? `A script was cut at the 950 KB read limit: ${label}.`
+            : '',
+        };
+      } catch (error) {
+        const message = error instanceof FetchProblem ? error.message : 'Could not read script.';
+        return {
           content: '',
           bytes: 0,
-          status: `HTTP ${response.status}`,
-          inline: false,
-          module: tag.module,
-          async: tag.async,
-          defer: tag.defer,
-          error: `HTTP ${response.status}`,
+          status: 'failed',
+          error: message,
+          warning: `${message} (${label})`,
         };
       }
-      if (isHtmlErrorPage(response)) {
-        pushWarning(warnings, `A script returned an HTML page instead of JavaScript: ${label}.`);
-        return {
-          url: tag.url,
-          label,
-          content: '',
-          bytes: 0,
-          status: 'HTML response',
-          inline: false,
-          module: tag.module,
-          async: tag.async,
-          defer: tag.defer,
-          error: 'HTML response',
-        };
-      }
-      if (response.truncated) {
-        pushWarning(warnings, `A script was cut at the 950 KB read limit: ${label}.`);
-      }
+    };
 
-      return {
-        url: tag.url,
-        label,
-        content: response.text,
-        bytes: response.bytes,
-        status: response.status,
-        inline: false,
-        module: tag.module,
-        async: tag.async,
-        defer: tag.defer,
-        truncated: response.truncated,
-      };
-    } catch (error) {
-      const message = error instanceof FetchProblem ? error.message : 'Could not read script.';
-      pushWarning(warnings, `${message} (${label})`);
-      return {
-        url: tag.url,
-        label,
-        content: '',
-        bytes: 0,
-        status: 'failed',
-        inline: false,
-        module: tag.module,
-        async: tag.async,
-        defer: tag.defer,
-        error: message,
-      };
-    }
+    const payload = await cachedFetch(cache, 'scripts', tag.url, fetchOne);
+
+    if (payload.warning) pushWarning(warnings, payload.warning);
+    if (payload.truncatedWarning) pushWarning(warnings, payload.truncatedWarning);
+
+    return {
+      url: tag.url,
+      label,
+      content: payload.content || '',
+      bytes: payload.bytes || 0,
+      status: payload.status,
+      inline: false,
+      module: tag.module,
+      async: tag.async,
+      defer: tag.defer,
+      error: payload.error,
+      truncated: Boolean(payload.truncated),
+    };
   });
 
   const inline = doc.scripts.inline.map((script) => ({
@@ -593,6 +637,7 @@ export function analyzeSources({
   onProgress = () => {},
   demo = false,
   preloadedDocument = null,
+  deferFinish = false,
 }) {
   const started = Date.now();
   const emit = makeProgress(onProgress);
@@ -1002,8 +1047,180 @@ export function analyzeSources({
 
   report.prompt = buildAgentPrompt(report);
 
-  emit('finish', 'Assembling the report', 97);
+  /*
+   * The assembling step normally closes the progress ladder. When a link crawl
+   * will run after this, analyzeSite emits that event itself once the crawl
+   * completes, so the overlay never shows "assembling" mid-crawl.
+   */
+  if (!deferFinish) {
+    emit('finish', 'Assembling the report', 97);
+  }
   return report;
+}
+
+/**
+ * Read one linked page with the reduced crawl limits. Mirrors the entry scan,
+ * but always against the per-scan resource cache so shared stylesheets and
+ * scripts are fetched once. Progress is intentionally silent — the crawl
+ * orchestrator owns the progress line.
+ */
+async function analyzePage(url, { signal, cache }, warnings) {
+  const page = await safeFetch(url, {
+    maxBytes: 2_500_000,
+    timeoutMs: 15_000,
+    accept: HTML_ACCEPT,
+    signal,
+  });
+
+  if (!page.ok) {
+    let message = `A linked page answered with HTTP ${page.status}.`;
+    if (page.status === 403) message = 'A linked page refused access (HTTP 403).';
+    else if (page.status === 404) message = 'A linked page could not be found (HTTP 404).';
+    else if (page.status === 429) message = 'The site limited a linked page request (HTTP 429).';
+    else if (page.status >= 500) message = `A linked page returned a server error (HTTP ${page.status}).`;
+    throw new FetchProblem(message, { code: 'HTTP_STATUS', status: 422, detail: `HTTP ${page.status}` });
+  }
+
+  const contentType = page.headers.contentType || '';
+  const looksLikeHtml =
+    /text\/html|application\/xhtml/i.test(contentType) || (!contentType && /^\s*</.test(page.text));
+  if (!looksLikeHtml || !page.text.trim()) {
+    throw new FetchProblem('That link does not return an HTML page.', {
+      code: 'NOT_HTML',
+      status: 415,
+      detail: contentType || 'empty',
+    });
+  }
+
+  const finalUrl = page.finalUrl || url;
+  const $ = load(page.text, { xmlMode: false });
+  let baseUrl = finalUrl;
+  const baseHref = $('base[href]').first().attr('href');
+  if (baseHref) {
+    try {
+      const candidate = new URL(baseHref, finalUrl);
+      if (['http:', 'https:'].includes(candidate.protocol)) baseUrl = candidate.toString();
+    } catch {
+      // Ignore malformed base tags.
+    }
+  }
+
+  const doc = analyzeDocument({ $, html: page.text, baseUrl, finalUrl });
+  const styleFetch = await fetchStyles(doc, baseUrl, warnings, signal, {
+    cache,
+    maxStyles: CRAWL_MAX_STYLES,
+    maxImports: 2,
+  });
+  const scriptFetch = await fetchScripts(doc, warnings, signal, {
+    cache,
+    maxScripts: CRAWL_MAX_SCRIPTS,
+  });
+
+  return analyzeSources({
+    requestedUrl: url,
+    finalUrl,
+    html: page.text,
+    cssSources: styleFetch.sources,
+    jsSources: scriptFetch.sources,
+    warnings,
+    responseHeaders: page.headers,
+    preloadedDocument: { $, doc, baseUrl },
+    pageInfo: {
+      bytes: page.bytes,
+      downloadedBytes: page.downloadedBytes,
+      status: page.status,
+      contentType: page.headers.contentType,
+      elapsedMs: page.elapsedMs,
+      truncated: page.truncated,
+    },
+    fetchMeta: {
+      styleSkipped: styleFetch.skipped,
+      scriptSkipped: scriptFetch.skipped,
+      styleStats: styleFetch.stats,
+      scriptStats: scriptFetch.stats,
+    },
+    onProgress: () => {},
+  });
+}
+
+/**
+ * Follow the entry page's internal links and read them with the same pipeline.
+ * Never throws: a failed crawl only degrades report.crawl, the entry report is
+ * already complete.
+ */
+async function buildCrawl({ entryReport, seedUrl, options, cache, warnings, signal, onProgress, startedAt }) {
+  const emit = makeProgress(onProgress);
+  const payload = {
+    enabled: options.pages <= 0 ? false : true,
+    seedUrl,
+    options: { pages: options.pages, depth: options.depth },
+    discovered: 0,
+    skipped: 0,
+    stoppedByBudget: false,
+    failed: [],
+    pages: [],
+    totals: {
+      pagesRead: 1,
+      failed: 0,
+      discovered: 0,
+      words: entryReport.stats?.words || 0,
+      transferredBytes: entryReport.stats?.transferredBytes || 0,
+      avgMotionScore: entryReport.summary?.motionScore || 0,
+      minMotionScore: entryReport.summary?.motionScore || 0,
+      maxMotionScore: entryReport.summary?.motionScore || 0,
+    },
+    shared: { fonts: [], colors: [], libraries: [], keyframes: [], tech: [] },
+    navLabels: [],
+    blueprint: '',
+  };
+
+  if (options.pages <= 0) {
+    return payload;
+  }
+
+  try {
+    emit(
+      'crawl',
+      'Following internal links',
+      87,
+      `up to ${options.pages} pages · depth ${options.depth} · same host only`,
+    );
+
+    const crawl = await crawlLinkedPages({
+      seedUrl,
+      candidates: entryReport.assets?.links?.internal || [],
+      maxPages: options.pages,
+      maxDepth: options.depth,
+      budgetMs: options.budgetMs,
+      startedAt,
+      signal,
+      visitPage: (url, context) => analyzePage(url, { signal, cache }, []),
+      onVisit: ({ done }) => {
+        emit(
+          'crawl',
+          'Reading linked pages',
+          Math.min(96, 87 + Math.round((done / Math.max(1, options.pages)) * 9)),
+          `${done} of up to ${options.pages} pages read`,
+        );
+      },
+      warn: (message) => pushWarning(warnings, message),
+    });
+
+    const summary = summarizeCrawl({ entryReport, crawl, seedUrl, options });
+    emit(
+      'finish',
+      'Assembling the report',
+      97,
+      `${summary.pages.length} linked page${summary.failed.length === 0 && summary.pages.length === 1 ? '' : 's'} · ${summary.failed.length} failed · average motion ${summary.totals.avgMotionScore}/100`,
+    );
+    return summary;
+  } catch (error) {
+    pushWarning(
+      warnings,
+      `The linked-page pass stopped early: ${collapse(error?.message || 'unknown error', 180)}`,
+    );
+    return payload;
+  }
 }
 
 /**
@@ -1011,9 +1228,10 @@ export function analyzeSources({
  * return a complete static motion + design report.
  */
 export async function analyzeSite(input, options = {}) {
-  const { onProgress = () => {}, signal, demo = false } = options;
+  const { onProgress = () => {}, signal, demo = false, crawl = {} } = options;
   const emit = makeProgress(onProgress);
   const started = Date.now();
+  const crawlOptions = readCrawlOptions(crawl);
   const requested = normalizeUrl(input);
   const requestedUrl = requested.toString();
   const warnings = [];
@@ -1089,10 +1307,11 @@ export async function analyzeSite(input, options = {}) {
   const doc = analyzeDocument({ $, html: page.text, baseUrl, finalUrl });
 
   emit('styles', 'Fetching stylesheets', 28, `${doc.styleLinks.length} linked`);
-  const styles = await fetchStyles(doc, baseUrl, warnings, signal);
+  const cache = createResourceCache();
+  const styles = await fetchStyles(doc, baseUrl, warnings, signal, { cache });
 
   emit('scripts', 'Fetching scripts', 55, `${doc.scripts.external.length} linked`);
-  const scripts = await fetchScripts(doc, warnings, signal);
+  const scripts = await fetchScripts(doc, warnings, signal, { cache });
 
   const report = analyzeSources({
     requestedUrl,
@@ -1119,7 +1338,31 @@ export async function analyzeSite(input, options = {}) {
     },
     onProgress,
     demo,
+    deferFinish: crawlOptions.pages > 0,
   });
+
+  /* ------------------------------------------------------- linked pages */
+  report.crawl = await buildCrawl({
+    entryReport: report,
+    seedUrl: finalUrl,
+    options: crawlOptions,
+    cache,
+    warnings,
+    signal,
+    onProgress,
+    startedAt: Date.now(),
+  });
+
+  /* The crawl may have added warnings; rebuild the escape hatch lists. */
+  if (report.crawl?.enabled) {
+    report.warnings = uniqueBy(
+      warnings.map((warning) => collapse(warning, 300)),
+      (item) => item,
+    ).slice(0, 30);
+
+    /* The agent prompt benefits from knowing the other pages exist. */
+    report.prompt = buildAgentPrompt(report);
+  }
 
   report.stats.analyzedInMs = Date.now() - started;
   report.fetchedAt = new Date().toISOString();

@@ -8,13 +8,14 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
-const STEP_KEYS = ['fetch', 'styles', 'scripts', 'motion', 'finish'];
+const STEP_KEYS = ['fetch', 'styles', 'scripts', 'motion', 'crawl', 'finish'];
 const STEP_FOR_EVENT = {
   fetch: 'fetch',
   parse: 'fetch',
   styles: 'styles',
   scripts: 'scripts',
   motion: 'motion',
+  crawl: 'crawl',
   finish: 'finish',
 };
 
@@ -219,6 +220,7 @@ function summaryText(report) {
     report.finalUrl || '',
     '',
     `Motion score        ${s.motionScore ?? 0}/100 (${s.motionLabel || '—'})`,
+
     `Keyframes           ${fmtInt(s.keyframes)}`,
     `Animation uses      ${fmtInt(s.animationUses)} across ${fmtInt(s.animatedSelectors)} selectors`,
     `Transitions         ${fmtInt(s.transitions)} across ${fmtInt(s.transitionedSelectors)} selectors`,
@@ -228,12 +230,21 @@ function summaryText(report) {
     `Images              ${fmtInt(s.images)} (${fmtInt(s.imagesMissingAlt)} missing alt)`,
     `Videos              ${fmtInt(s.videos)}`,
     `Links               ${fmtInt(s.links)}`,
+  ];
+  if (report.crawl?.enabled) {
+    lines.push(
+      `Pages read          ${fmtInt(report.crawl.totals?.pagesRead ?? 0)} (${fmtInt(
+        (report.crawl.pages || []).length,
+      )} linked${(report.crawl.failed || []).length ? `, ${fmtInt(report.crawl.failed.length)} failed` : ''})`,
+    );
+  }
+  lines.push(
     `Font families       ${fmtInt(s.fontFamilies)}`,
     `Assets referenced   ${fmtInt(s.assets)}`,
     `Words               ${fmtInt(report.stats?.words)}`,
     '',
-    `Read ${fmtDate(report.fetchedAt)} · webcopy v1.0 · static source read`,
-  ];
+    `Read ${fmtDate(report.fetchedAt)} · webcopy v1.1 · static source read`,
+  );
   return lines.join('\n');
 }
 
@@ -357,9 +368,12 @@ async function streamFailed(token) {
   const controller = new AbortController();
   state.fallback = controller;
   try {
-    const response = await fetch(`/api/analyze?url=${encodeURIComponent(state.lastUrl)}`, {
-      signal: controller.signal,
-    });
+    const response = await fetch(
+      `/api/analyze?url=${encodeURIComponent(state.lastUrl)}${crawlSearchParams()}`,
+      {
+        signal: controller.signal,
+      },
+    );
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload || payload.error) {
       failScan(payload?.error || { message: `The read failed (HTTP ${response.status}).`, code: 'HTTP_ERROR' }, token);
@@ -372,6 +386,20 @@ async function streamFailed(token) {
   } finally {
     state.fallback = null;
   }
+}
+
+/* Crawl options ride along with every live scan when enabled. Sending an
+   explicit 0 matters: an omitted parameter would fall back to the server
+   default, silently turning a switched-off crawl back on. */
+
+function crawlSearchParams() {
+  const pages = Number(refs.crawlPages?.value ?? 3);
+  if (!Number.isFinite(pages)) return '';
+  const count = Math.max(0, Math.min(12, Math.round(pages)));
+  const depth = Number(refs.crawlDepth?.value ?? 1);
+  const depthPart =
+    count > 0 && Number.isFinite(depth) && depth > 0 ? `&depth=${Math.min(3, Math.round(depth))}` : '';
+  return `&pages=${count}${depthPart}`;
 }
 
 function startScan(rawUrl, options = {}) {
@@ -406,7 +434,9 @@ function startScan(rawUrl, options = {}) {
   showOverlay();
 
   const stream = new EventSource(
-    demo ? '/api/analyze/stream?demo=1' : `/api/analyze/stream?url=${encodeURIComponent(value)}`,
+    demo
+      ? '/api/analyze/stream?demo=1'
+      : `/api/analyze/stream?url=${encodeURIComponent(value)}${crawlSearchParams()}`,
   );
   state.stream = stream;
 
@@ -1442,6 +1472,411 @@ function sourceSection(report) {
   );
 }
 
+/* --------------------- linked pages & site structure -------------------- */
+
+function pageKeyOf(url) {
+  try {
+    const parsed = new URL(String(url));
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    const path = parsed.pathname === '/' || !parsed.pathname.endsWith('/')
+      ? parsed.pathname || '/'
+      : parsed.pathname.replace(/\/+$/, '') || '/';
+    return `${host}${path.toLowerCase()}${parsed.search.toLowerCase()}`;
+  } catch {
+    return String(url || '').toLowerCase();
+  }
+}
+
+function pathOf(url) {
+  try {
+    const parsed = new URL(String(url));
+    return parsed.pathname === '/' ? '/ (home)' : parsed.pathname;
+  } catch {
+    return limited(String(url || ''), 40);
+  }
+}
+
+function sharedChip({ text, count, total }) {
+  const share = total ? Math.round((count / total) * 100) : 0;
+  const acid = count === total;
+  return chip(
+    `${esc(text)} <span class="chip__share">${fmtInt(count)}/${fmtInt(total)} · ${share}%</span>`,
+    acid ? 'acid' : '',
+  );
+}
+
+/* Sitemap: the entry page plus every page the crawl reached, arranged by the
+   link that surfaced it. Failure notes sit under the tree, not inside it. */
+function sitemapTree(report, crawl) {
+  const pages = crawl.pages || [];
+  const failed = crawl.failed || [];
+  const seedKey = pageKeyOf(crawl.seedUrl || report.finalUrl);
+  const byKey = new Map(pages.map((page) => [page.key || pageKeyOf(page.url), page]));
+
+  const children = new Map();
+  for (const page of pages) {
+    let parent = page.via || seedKey;
+    if (parent !== seedKey && !byKey.has(parent)) parent = seedKey;
+    const list = children.get(parent) || [];
+    list.push(page);
+    children.set(parent, list);
+  }
+
+  const node = (page) => {
+    const label = pathOf(page.url);
+    return `<span class="sitemap__node">
+      <a class="sitemap__name" href="#page-${esc(page.key || pageKeyOf(page.url))}">${esc(label)}</a>
+      <span class="chips sitemap__chips">
+        <span class="chip">${esc(page.role || 'page')}</span>
+        <span class="chip">score <strong>${fmtInt(page.summary?.motionScore)}</strong></span>
+        <span class="chip">${fmtInt(page.summary?.words ?? 0)} words</span>
+      </span>
+    </span>`;
+  };
+
+  const levelTwo = (parentKey) => {
+    const kids = children.get(parentKey) || [];
+    if (!kids.length) return '';
+    return `<ul class="sitemap__branch">${kids
+      .map((page) => `<li>${node(page)}${levelTwo(page.key || pageKeyOf(page.url))}</li>`)
+      .join('')}</ul>`;
+  };
+
+  const failures = failed.length
+    ? `<ul class="sitemap__failures">${failed
+        .map(
+          (failure) => `<li><span class="sitemap__node sitemap__node--failed">
+            <span class="sitemap__name">${esc(pathOf(failure.url))}</span>
+            <span class="chips sitemap__chips"><span class="chip chip--ember">${esc(limited(failure.reason, 60))}</span></span>
+          </span></li>`,
+        )
+        .join('')}</ul>`
+    : '';
+
+  return `<div class="sitemap">
+    <ul class="sitemap__branch sitemap__branch--root">
+      <li>
+        <span class="sitemap__node sitemap__node--seed">
+          <span class="sitemap__name">${esc('/ (entry page)')}</span>
+          <span class="chips sitemap__chips">
+            <span class="chip chip--acid">entry</span>
+            <span class="chip">score <strong>${fmtInt(report.summary?.motionScore)}</strong></span>
+          </span>
+        </span>
+        ${levelTwo(seedKey)}
+        ${children.size || failures ? '' : ''}
+      </li>
+    </ul>
+    ${failures}
+  </div>`;
+}
+
+/* One crawled page, rendered with the same tables the entry report carries. */
+function pageBlock(page, index, total) {
+  const m = page.motion || {};
+  const design = page.design || {};
+  const structure = page.structure || {};
+  const s = page.summary || {};
+  const key = page.key || pageKeyOf(page.url);
+  const parts = [];
+
+  parts.push(
+    statGrid([
+      { label: 'Motion score', value: fmtInt(s.motionScore), note: s.motionLabel || '—' },
+      { label: 'Keyframes', value: fmtInt(m.keyframesTotal ?? s.keyframes), note: `${fmtInt(s.keyframeNames)} names`, count: m.keyframesTotal ?? s.keyframes },
+      { label: 'Animation uses', value: fmtInt(s.animationUses), note: `${fmtInt(s.animatedSelectors)} selectors`, count: s.animationUses },
+      { label: 'Transitions', value: fmtInt(s.transitions), note: `${fmtInt(s.transitionedSelectors)} selectors`, count: s.transitions },
+      { label: 'Libraries', value: fmtInt(s.libraries), note: (m.libraries || []).slice(0, 2).map((l) => l.name).join(', ') || 'none', count: s.libraries },
+      { label: 'Scroll signals', value: fmtInt(s.scrollSignals), note: 'systems found', count: s.scrollSignals },
+      { label: 'Colors', value: fmtInt(s.colors), note: 'distinct values', count: s.colors },
+      { label: 'Words', value: fmtInt(s.words), note: `${fmtInt(s.readingMinutes ?? 0)} min read`, count: s.words },
+    ]),
+  );
+
+  const keyframeRows = (m.keyframes || []).map((frame) => {
+    const used = frame.usedCount
+      ? `<span class="chip chip--acid">${fmtInt(frame.usedCount)}×</span>`
+      : '<span class="chip chip--outline">unused</span>';
+    return `<tr>
+      <td><span class="cell-code">${esc(frame.name)}</span></td>
+      <td class="cell-num">${fmtInt(frame.frames)}</td>
+      <td class="cell-code cell-muted">${esc((frame.properties || []).join(', ') || '—')}</td>
+      <td>${used}</td>
+      <td class="cell-code cell-muted">${esc(frame.source)}${frame.line ? `:${frame.line}` : ''}</td>
+    </tr>`;
+  });
+  parts.push(
+    subhead('Keyframe definitions', `${fmtInt(m.keyframesTotal ?? (m.keyframes || []).length)} declared · condensed read`),
+    keyframeRows.length
+      ? renderTable(['Keyframe', 'Frames', 'Properties', 'Used', 'Source'], keyframeRows, { visible: 12 })
+      : `<div class="asset-empty">No @keyframes blocks were found on this page's readable CSS.</div>`,
+  );
+
+  const animationRows = (m.animationUses || []).map((item) => `<tr>
+      <td class="cell-code">${esc(limited(item.selector, 110))}</td>
+      <td class="cell-code">${esc(item.name)}</td>
+      <td class="cell-num">${esc(item.duration || '—')}</td>
+      <td class="cell-code">${esc(item.timing || '—')}</td>
+      <td class="cell-code">${esc(item.delay || '—')}</td>
+      <td class="cell-code cell-muted">${esc(item.timeline || item.media || '—')}</td>
+    </tr>`);
+  parts.push(
+    subhead('Animation assignments', `${fmtInt(m.animationUsesTotal ?? (m.animationUses || []).length)} total`),
+    animationRows.length
+      ? renderTable(['Selector', 'Name', 'Duration', 'Easing', 'Delay', 'Timeline / media'], animationRows, { visible: 16 })
+      : `<div class="asset-empty">No animation declarations were found on this page.</div>`,
+  );
+
+  const transitionRows = (m.transitions || []).map((item) => `<tr>
+      <td class="cell-code">${esc(limited(item.selector, 110))}</td>
+      <td class="cell-code">${esc(item.property || 'all')}</td>
+      <td class="cell-num">${esc(item.duration || '—')}</td>
+      <td class="cell-code">${esc(item.timing || '—')}</td>
+      <td class="cell-code cell-muted">${esc(item.media || '—')}</td>
+    </tr>`);
+  parts.push(
+    subhead('Transition rules', `${fmtInt(m.transitionsTotal ?? (m.transitions || []).length)} total`),
+    transitionRows.length
+      ? renderTable(['Selector', 'Property', 'Duration', 'Easing', 'Media'], transitionRows, { visible: 16 })
+      : `<div class="asset-empty">No transition declarations were found on this page.</div>`,
+  );
+
+  /* Tokens */
+  const tokens = [];
+  const colors = (design.colors || []).slice(0, 24);
+  if (colors.length) {
+    tokens.push(
+      `<div class="ledger-row"><span class="ledger-row__label">Colours</span><div class="swatch-grid swatch-grid--tight">${colors
+        .map(
+          (color) => `<div class="swatch swatch--tight">
+            <span class="swatch__chip"${safeColor(color.value) ? ` style="background:${esc(safeColor(color.value))}"` : ''}></span>
+            <span class="swatch__value">${esc(limited(color.value, 28))}</span>
+            <span class="swatch__meta">${fmtInt(color.count)}×</span>
+          </div>`,
+        )
+        .join('')}</div></div>`,
+    );
+  }
+  const fonts = design.fonts || [];
+  if (fonts.length) {
+    tokens.push(
+      `<div class="ledger-row"><span class="ledger-row__label">Type</span><div class="chips">${fonts
+        .map((font) => chip(`${esc(font.family)} ${fmtInt(font.count ?? 0)}×`))
+        .join('')}</div></div>`,
+    );
+  }
+  if (tokens.length) parts.push(subhead('Tokens as read', 'same ledger the design section runs'), `<div class="ledger-rows">${tokens.join('')}</div>`);
+
+  const headings = (structure.headings || []).slice(0, 18);
+  if (headings.length) {
+    const outline = headings
+      .map(
+        (heading) => `<li class="outline__item" data-level="${Number(heading.level) || 1}">
+          <span class="outline__level">H${Number(heading.level) || 1}</span>
+          <span class="outline__text">${esc(heading.text)}</span>
+          <span></span>
+        </li>`,
+      )
+      .join('');
+    parts.push(subhead('Heading outline', `${fmtInt(structure.wordCount ?? s.words ?? 0)} words of copy read`), `<ol class="outline outline--tight">${outline}</ol>`);
+  }
+
+  if (page.warnings?.length) {
+    parts.push(
+      subhead('Reading notes for this page', 'limits hit while fetching'),
+      `<div class="callout-list">${page.warnings.map((warning) => `<p class="callout">${esc(warning)}</p>`).join('')}</div>`,
+    );
+  }
+
+  const depthTag = page.depth > 1 ? chip(`depth <strong>${fmtInt(page.depth)}</strong>`) : '';
+  const viaTag = page.viaText ? chip(`via ${esc(page.viaText)}`, 'outline') : '';
+
+  return `<details class="page-block" id="page-${esc(key)}">
+    <summary>
+      <span class="page-block__order">${String(index + 1).padStart(2, '0')}</span>
+      <span class="page-block__id">
+        <span class="page-block__title">${esc(page.title || page.url)}</span>
+        <span class="page-block__path">${esc(pathOf(page.url))}</span>
+      </span>
+      <span class="chips page-block__chips">
+        ${chip(esc(page.role || 'page'))}
+        ${chip(`score <strong>${fmtInt(s.motionScore)}</strong>`)}
+        ${chip(`${fmtInt(s.keyframes)} kf`)}
+        ${chip(`${fmtInt(s.transitions)} tr`)}
+        ${depthTag}
+        ${viaTag}
+      </span>
+      <span class="page-block__cue" aria-hidden="true">＋</span>
+    </summary>
+    <div class="page-block__body">
+      <p class="page-block__link">${tableLink(page.url, page.url)}</p>
+      ${parts.join('')}
+    </div>
+  </details>`;
+}
+
+function crawlSection(report) {
+  const crawl = report.crawl;
+
+  if (!crawl) {
+    return section(
+      'report-crawl',
+      'F',
+      'Pages & site structure',
+      'This read was made before the crawl existed: only the entry page was analysed.',
+      `<div class="asset-empty">No linked-page read is attached to this report. Run a new scan with <strong>Linked pages</strong> set to 3, 6 or 10 and webcopy will follow the site's own links.</div>`,
+      true,
+    );
+  }
+  if (!crawl.enabled) {
+    return section(
+      'report-crawl',
+      'F',
+      'Pages & site structure',
+      'This scan read one page — the site crawl was switched off.',
+      `<div class="asset-empty">Crawl was off for this read. Switch <strong>Linked pages</strong> to 3, 6 or 10 and webcopy will follow same-site links (About, Contact, Work…) and analyse each with the same motion and design ledgers.</div>`,
+      true,
+    );
+  }
+
+  const pages = crawl.pages || [];
+  const failed = crawl.failed || [];
+  const totals = crawl.totals || {};
+  const shared = crawl.shared || {};
+  const parts = [];
+
+  parts.push(
+    statGrid([
+      { label: 'Pages read', value: fmtInt(totals.pagesRead ?? 1), note: `entry + ${fmtInt(pages.length)} linked`, variant: 'accent', count: totals.pagesRead ?? 1 },
+      { label: 'Internal links found', value: fmtInt(totals.discovered ?? 0), note: `${crawl.skipped ? `${fmtInt(crawl.skipped)} left unread` : 'all read'}`, count: totals.discovered },
+      { label: 'Failed reads', value: fmtInt(totals.failed ?? 0), note: failed.length ? 'blocked or unreachable' : 'none', variant: (totals.failed ?? 0) > 0 ? 'ember' : '' },
+      { label: 'Site motion average', value: fmtInt(totals.avgMotionScore ?? 0), note: `spread ${fmtInt(totals.minMotionScore ?? 0)}–${fmtInt(totals.maxMotionScore ?? 0)}` },
+      { label: 'Words read', value: fmtInt(totals.words ?? 0), note: 'across all pages', count: totals.words },
+      { label: 'Shared fonts', value: fmtInt((shared.fonts || []).length), note: limited((shared.fonts || []).slice(0, 2).map((f) => f.family).join(', '), 36) || 'none' },
+      { label: 'Shared colors', value: fmtInt((shared.colors || []).length), note: 'values seen on 2+ pages' },
+      { label: 'Shared libraries', value: fmtInt((shared.libraries || []).length), note: limited((shared.libraries || []).slice(0, 2).map((l) => l.name).join(', '), 36) || 'none' },
+    ]),
+  );
+
+  if (crawl.stoppedByBudget) {
+    parts.push(
+      `<div class="callout-list"><p class="callout">The crawl hit its read budget before the link list ran out; counts below cover the pages that were reached.</p></div>`,
+    );
+  }
+
+  parts.push(
+    subhead('Site map', `${fmtInt(pages.length)} linked pages · depth ${fmtInt(crawl.options?.depth ?? 1)} · same host only`),
+    sitemapTree(report, crawl),
+  );
+
+  if (pages.length) {
+    parts.push(
+      subhead('Per-page ledgers', 'same tables as section A and B, condensed'),
+      pages.map((page, index) => pageBlock(page, index, pages.length)).join(''),
+    );
+  } else {
+    parts.push(
+      subhead('Per-page ledgers', 'none completed'),
+      `<div class="asset-empty">No linked page could be read. The failures listed in the site map carry the reasons.</div>`,
+    );
+  }
+
+  /* Shared design system */
+  const pageCount = totals.pagesRead ?? 1;
+  if ((shared.fonts || []).length || (shared.colors || []).length || (shared.libraries || []).length) {
+    const rows = [];
+    if ((shared.fonts || []).length) {
+      rows.push(
+        `<div class="ledger-row"><span class="ledger-row__label">Type</span><div class="chips">${shared.fonts
+          .slice(0, 10)
+          .map((font) => sharedChip({ text: font.family, count: font.pages, total: pageCount }))
+          .join('')}</div></div>`,
+      );
+    }
+    if ((shared.colors || []).length) {
+      rows.push(
+        `<div class="ledger-row"><span class="ledger-row__label">Colour</span><div class="swatch-grid swatch-grid--tight">${shared.colors
+          .slice(0, 16)
+          .map(
+            (color) => `<div class="swatch swatch--tight">
+              <span class="swatch__chip"${safeColor(color.value) ? ` style="background:${esc(safeColor(color.value))}"` : ''}></span>
+              <span class="swatch__value">${esc(limited(color.value, 28))}</span>
+              <span class="swatch__meta">${fmtInt(color.pages)}/${fmtInt(pageCount)}</span>
+            </div>`,
+          )
+          .join('')}</div></div>`,
+      );
+    }
+    if ((shared.libraries || []).length) {
+      rows.push(
+        `<div class="ledger-row"><span class="ledger-row__label">Motion</span><div class="chips">${shared.libraries
+          .slice(0, 10)
+          .map((library) => sharedChip({ text: `${library.name} (${library.category || 'library'})`, count: library.pages, total: pageCount }))
+          .join('')}</div></div>`,
+      );
+    }
+    if ((shared.keyframes || []).length) {
+      rows.push(
+        `<div class="ledger-row"><span class="ledger-row__label">Keyframes reused</span><div class="chips">${shared.keyframes
+          .slice(0, 12)
+          .map((frame) => sharedChip({ text: frame.name, count: frame.pages, total: pageCount }))
+          .join('')}</div></div>`,
+      );
+    }
+    if ((shared.tech || []).length) {
+      rows.push(
+        `<div class="ledger-row"><span class="ledger-row__label">Tech</span><div class="chips">${shared.tech
+          .slice(0, 12)
+          .map((tech) => sharedChip({ text: tech.name, count: tech.pages, total: pageCount }))
+          .join('')}</div></div>`,
+      );
+    }
+    parts.push(
+      subhead("What repeats across pages", "the site's shared design system, as counted"),
+      `<div class="ledger-rows">${rows.join('')}</div>`,
+    );
+  } else {
+    parts.push(
+      subhead('What repeats across pages', 'nothing matched'),
+      `<div class="asset-empty">No font, colour or library appears on more than one page of this read.</div>`,
+    );
+  }
+
+  /* Navigation labels */
+  if ((crawl.navLabels || []).length) {
+    parts.push(
+      subhead('How the navigation reads', 'entry-page link text, ranked by frequency'),
+      `<div class="chips chips--wrap">${crawl.navLabels
+        .slice(0, 14)
+        .map((entry) => chip(`${esc(entry.label)} <strong>${fmtInt(entry.count)}</strong>`, 'outline'))
+        .join('')}</div>`,
+    );
+  }
+
+  /* Blueprint */
+  parts.push(
+    subhead('How this site works', 'the closing brief, generated from the numbers above'),
+    `<div class="blueprint">
+      <pre id="blueprintText" class="blueprint__pre">${esc(crawl.blueprint || 'No blueprint was generated for this read.')}</pre>
+      <div class="blueprint__foot">
+        <span>${fmtInt((crawl.blueprint || '').length)} characters · plain text</span>
+        <span class="report-actions">
+          <button class="btn btn--sm" type="button" data-action="copy-blueprint">Copy blueprint</button>
+        </span>
+      </div>
+    </div>`,
+  );
+
+  return section(
+    'report-crawl',
+    'F',
+    'Pages & site structure',
+    `The crawl followed same-site links and read ${fmtInt(pages.length)} page${pages.length === 1 ? '' : 's'} with the same ledgers — then folded everything into one site plan.`,
+    parts.join(''),
+    true,
+  );
+}
+
 /* --------------------------- report assembly ---------------------------- */
 
 function renderReport(report) {
@@ -1454,7 +1889,7 @@ function renderReport(report) {
   const hero = `<header class="report-hero">
     <div class="report-hero__bar">
       <span class="live-tag"><i aria-hidden="true"></i>${report.demo ? 'Specimen' : 'Live'} readout</span>
-      <span class="report-hero__crumb">${esc(report.host || hostOf(report.finalUrl))} · ${report.demo ? 'fictional specimen' : 'static source read'} · v1.0</span>
+      <span class="report-hero__crumb">${esc(report.host || hostOf(report.finalUrl))} · ${report.demo ? 'fictional specimen' : 'static source read'} · v1.1</span>
       <span class="report-actions">
         <button class="btn btn--sm" type="button" data-action="copy-summary">Copy summary</button>
         <button class="btn btn--sm btn--acid" type="button" data-action="copy-prompt">Copy agent prompt</button>
@@ -1469,7 +1904,8 @@ function renderReport(report) {
         <p class="report-sub">${esc(report.requestedUrl)} → ${esc(report.finalUrl)}</p>
         <div class="report-tags">
           ${report.demo ? chip('demo specimen', 'acid') : chip('live read')}
-          ${chip(`score <strong>${fmtInt(s.motionScore)}</strong>`) }
+          ${report.crawl?.enabled ? chip(`${fmtInt(report.crawl.totals?.pagesRead ?? 0)} pages read`, 'acid') : ''}
+          ${chip(`score <strong>${fmtInt(s.motionScore)}</strong>` )}
           ${chip(`${fmtInt(s.motionSignatures)} signatures`)}
           ${chip(`${fmtInt(s.assets)} assets`)}
           ${s.imagesMissingAlt ? chip(`${fmtInt(s.imagesMissingAlt)} images missing alt`, 'ember') : chip('all images labelled')}
@@ -1515,6 +1951,7 @@ function renderReport(report) {
       <a class="report-nav__link" href="#report-assets">C · Assets</a>
       <a class="report-nav__link" href="#report-structure">D · Structure</a>
       <a class="report-nav__link" href="#report-code">E · Source</a>
+      <a class="report-nav__link" href="#report-crawl">F · Pages</a>
       <span class="report-nav__spacer"></span>
       <span class="report-nav__meta">Read ${esc(fmtDate(report.fetchedAt))}</span>
     </div>
@@ -1543,6 +1980,7 @@ function renderReport(report) {
     ${assetsSection(report)}
     ${structureSection(report)}
     ${sourceSection(report)}
+    ${crawlSection(report)}
     ${foot}`;
 
   showReport(report);
@@ -1772,6 +2210,10 @@ function wireEvents() {
         else toast('This report has no agent prompt.');
       } else if (name === 'download-prompt') {
         downloadPrompt();
+      } else if (name === 'copy-blueprint') {
+        const blueprint = state.report.crawl?.blueprint;
+        if (blueprint) copyText(blueprint, 'Site blueprint copied.');
+        else toast('This report has no site blueprint.');
       }
     }
   });
@@ -1796,6 +2238,8 @@ function init() {
   refs.submit = $('.scan-submit', refs.form);
   refs.formError = $('#formError');
   refs.shell = $('#scanShell');
+  refs.crawlPages = $('#crawlPages');
+  refs.crawlDepth = $('#crawlDepth');
   refs.landing = $('#landingView');
   refs.reportView = $('#reportView');
   refs.newScan = $('.js-new-scan');
